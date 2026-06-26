@@ -1,0 +1,49 @@
+[package]
+name = "speak"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Speech client for the solaris OpenAI-compatible TTS/ASR server"
+license = "MIT"
+
+[[bin]]
+name = "speak"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "signal", "time", "io-util"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
+clap = { version = "4", features = ["derive", "env", "wrap_help"] }
+clap_complete = "4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+anyhow = "1"
+ffmpeg-the-third = "5.0.0"
+
+# Native macOS audio I/O (CoreAudio / AVFAudio) — device output + mixer + mic capture.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6", features = ["exception"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSError", "NSThread"] }
+objc2-avf-audio = { version = "0.3", features = [
+    "AVAudioEngine",
+    "AVAudioPlayerNode",
+    "AVAudioNode",
+    "AVAudioIONode",
+    "AVAudioMixerNode",
+    "AVAudioMixing",
+    "AVAudioFormat",
+    "AVAudioBuffer",
+    "AVAudioChannelLayout",
+    "AVAudioConnectionPoint",
+    "AVAudioTime",
+    "AVAudioTypes",
+    "block2",
+] }
+block2 = "0.6"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+codegen-units = 1

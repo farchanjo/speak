@@ -9,6 +9,10 @@
 mode = "enforce"               # "enforce" | "advisory" | "off"
 overrideFlag = "--allow-out-of-spec"
 specScopeGlobs = [
-  # Add implementation directories the implement phase may write, e.g.:
-  # "src/**",
+  "src/**",
+  "Cargo.toml",
+  "Cargo.lock",
+  "README.md",
+  "bin/**",
+  ".gitignore",
 ]
