@@ -10,6 +10,7 @@ mod client;
 mod codec;
 mod config;
 mod daemon;
+mod domain;
 mod logging;
 mod paths;
 mod transport;
@@ -228,50 +229,6 @@ struct VoiceAddArgs {
     ref_text: Option<String>,
 }
 
-/// Canonical voice-design tags accepted by the server's `instruct` field.
-const DESIGN_TAGS: &[&str] = &[
-    "male",
-    "female",
-    "child",
-    "teenager",
-    "young adult",
-    "middle-aged",
-    "elderly",
-    "very low pitch",
-    "low pitch",
-    "moderate pitch",
-    "high pitch",
-    "very high pitch",
-    "whisper",
-    "american accent",
-    "australian accent",
-    "british accent",
-    "canadian accent",
-    "chinese accent",
-    "indian accent",
-    "japanese accent",
-    "korean accent",
-    "portuguese accent",
-    "russian accent",
-];
-
-/// Keys accepted by `say --set key=value` (pass-through generation params).
-const GEN_PARAM_KEYS: &[&str] = &[
-    "num_step",
-    "steps",
-    "num_steps",
-    "guidance_scale",
-    "t_shift",
-    "layer_penalty_factor",
-    "position_temperature",
-    "class_temperature",
-    "denoise",
-    "preprocess_prompt",
-    "postprocess_output",
-    "audio_chunk_duration",
-    "audio_chunk_threshold",
-];
-
 /// OpenAI audio response formats.
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum AudioFormat {
@@ -428,7 +385,12 @@ fn cmd_config(action: ConfigAction, cfg: &Config) -> Result<()> {
 }
 
 fn config_show(cfg: &Config) {
-    let width = cfg.entries().iter().map(|(k, ..)| k.len()).max().unwrap_or(0);
+    let width = cfg
+        .entries()
+        .iter()
+        .map(|(k, ..)| k.len())
+        .max()
+        .unwrap_or(0);
     for (key, value, origin) in cfg.entries() {
         println!("{key:<width$} = {value}  ({origin})");
     }
@@ -437,7 +399,7 @@ fn config_show(cfg: &Config) {
 async fn cmd_say(cfg: &Config, globals: &GlobalArgs, args: SayArgs) -> Result<()> {
     if args.list_designs {
         println!("Valid voice-design tags (use with --instruct, comma-separated):");
-        for tag in DESIGN_TAGS {
+        for tag in domain::voice_design::CANONICAL_TAGS {
             println!("  {tag}");
         }
         return Ok(());
@@ -465,7 +427,10 @@ async fn cmd_say(cfg: &Config, globals: &GlobalArgs, args: SayArgs) -> Result<()
 }
 
 fn resolve_out_path(cfg: &Config, path: &Path) -> PathBuf {
-    match (&cfg.general.save_dir, path.is_absolute() || path.parent().is_some_and(|p| !p.as_os_str().is_empty())) {
+    match (
+        &cfg.general.save_dir,
+        path.is_absolute() || path.parent().is_some_and(|p| !p.as_os_str().is_empty()),
+    ) {
         (Some(dir), false) => dir.join(path),
         _ => path.to_path_buf(),
     }
@@ -479,11 +444,19 @@ async fn synthesize(
     format: &str,
 ) -> Result<client::AudioReply> {
     if args.native {
-        let body = serde_json::json!({ "text": text, "language": cfg.tts.language, "speed": args.speed });
-        return transport.proxy("POST", "/tts", Some(body)).await?.into_audio();
+        let body =
+            serde_json::json!({ "text": text, "language": cfg.tts.language, "speed": args.speed });
+        return transport
+            .proxy("POST", "/tts", Some(body))
+            .await?
+            .into_audio();
     }
-    let instruct = args.instruct.as_deref().or(cfg.tts.instruct.as_deref());
-    let voice = if instruct.is_some() { None } else { Some(cfg.tts.voice.as_str()) };
+    let instruct = validate_instruct(args.instruct.as_deref().or(cfg.tts.instruct.as_deref()))?;
+    let voice = if instruct.is_some() {
+        None
+    } else {
+        Some(cfg.tts.voice.as_str())
+    };
     let req = SpeakRequest {
         input: text,
         model: &cfg.tts.model,
@@ -491,12 +464,22 @@ async fn synthesize(
         response_format: format,
         speed: args.speed,
         language: &cfg.tts.language,
-        instruct,
+        instruct: instruct.as_deref(),
         ref_text: args.ref_text.as_deref(),
         duration: args.duration,
         extra: gen_extra(cfg, &args.set)?,
     };
-    transport.proxy("POST", "/v1/audio/speech", Some(req.to_body())).await?.into_audio()
+    transport
+        .proxy("POST", "/v1/audio/speech", Some(req.to_body()))
+        .await?
+        .into_audio()
+}
+
+/// Validate an optional voice-design instruct string against the canonical tags.
+fn validate_instruct(instruct: Option<&str>) -> Result<Option<String>> {
+    instruct
+        .map(|raw| domain::voice_design::VoiceDesign::parse(raw).map(|d| d.instruct()))
+        .transpose()
 }
 
 fn report_synth(reply: &client::AudioReply) {
@@ -505,39 +488,10 @@ fn report_synth(reply: &client::AudioReply) {
     }
 }
 
-fn parse_gen_params(sets: &[String]) -> Result<serde_json::Map<String, serde_json::Value>> {
-    let mut map = serde_json::Map::new();
-    for entry in sets {
-        let (key, raw) = entry
-            .split_once('=')
-            .ok_or_else(|| anyhow::anyhow!("--set expects key=value, got '{entry}'"))?;
-        if !GEN_PARAM_KEYS.contains(&key) {
-            bail!(
-                "unknown generation param '{key}'; valid keys: {}",
-                GEN_PARAM_KEYS.join(", ")
-            );
-        }
-        map.insert(key.to_owned(), parse_scalar(raw));
-    }
-    Ok(map)
-}
-
-fn parse_scalar(raw: &str) -> serde_json::Value {
-    if let Ok(i) = raw.parse::<i64>() {
-        serde_json::Value::from(i)
-    } else if let Ok(f) = raw.parse::<f64>() {
-        serde_json::Value::from(f)
-    } else if let Ok(b) = raw.parse::<bool>() {
-        serde_json::Value::from(b)
-    } else {
-        serde_json::Value::from(raw)
-    }
-}
-
 /// Merge configured `[tts.gen]` params, then overlay per-call `--set` overrides.
 fn gen_extra(cfg: &Config, sets: &[String]) -> Result<serde_json::Map<String, serde_json::Value>> {
     let mut map = gen_to_map(&cfg.tts.gen);
-    for (key, value) in parse_gen_params(sets)? {
+    for (key, value) in domain::gen_params::parse_overrides(sets)? {
         map.insert(key, value);
     }
     Ok(map)
@@ -554,14 +508,26 @@ fn gen_to_map(g: &config::Gen) -> serde_json::Map<String, serde_json::Value> {
     put("num_step", g.num_step.map(|v| json!(v)));
     put("guidance_scale", g.guidance_scale.map(|v| json!(v)));
     put("t_shift", g.t_shift.map(|v| json!(v)));
-    put("layer_penalty_factor", g.layer_penalty_factor.map(|v| json!(v)));
-    put("position_temperature", g.position_temperature.map(|v| json!(v)));
+    put(
+        "layer_penalty_factor",
+        g.layer_penalty_factor.map(|v| json!(v)),
+    );
+    put(
+        "position_temperature",
+        g.position_temperature.map(|v| json!(v)),
+    );
     put("class_temperature", g.class_temperature.map(|v| json!(v)));
     put("denoise", g.denoise.map(|v| json!(v)));
     put("preprocess_prompt", g.preprocess_prompt.map(|v| json!(v)));
     put("postprocess_output", g.postprocess_output.map(|v| json!(v)));
-    put("audio_chunk_duration", g.audio_chunk_duration.map(|v| json!(v)));
-    put("audio_chunk_threshold", g.audio_chunk_threshold.map(|v| json!(v)));
+    put(
+        "audio_chunk_duration",
+        g.audio_chunk_duration.map(|v| json!(v)),
+    );
+    put(
+        "audio_chunk_threshold",
+        g.audio_chunk_threshold.map(|v| json!(v)),
+    );
     m
 }
 
@@ -578,11 +544,17 @@ async fn cmd_voices(cfg: &Config, action: VoicesAction) -> Result<()> {
                 fields.push(("ref_text".to_owned(), text.clone()));
             }
             let file = Some((bytes, file_name(&args.audio)));
-            let msg = transport.proxy_multipart("/voices", &fields, file, "audio").await?.into_string()?;
+            let msg = transport
+                .proxy_multipart("/voices", &fields, file, "audio")
+                .await?
+                .into_string()?;
             println!("{}", non_empty(msg, &format!("added voice {}", args.name)));
         }
         VoicesAction::Rm { name } => {
-            let msg = transport.proxy("DELETE", &format!("/voices/{name}"), None).await?.into_string()?;
+            let msg = transport
+                .proxy("DELETE", &format!("/voices/{name}"), None)
+                .await?
+                .into_string()?;
             println!("{}", non_empty(msg, &format!("removed voice {name}")));
         }
     }
@@ -591,14 +563,22 @@ async fn cmd_voices(cfg: &Config, action: VoicesAction) -> Result<()> {
 
 async fn list_voices(transport: &Transport) -> Result<()> {
     let value = transport.proxy("GET", "/voices", None).await?.into_json()?;
-    let voices: Vec<client::VoiceInfo> =
-        serde_json::from_value(value.get("voices").cloned().unwrap_or(serde_json::Value::Null))
-            .context("parsing /voices response")?;
+    let voices: Vec<client::VoiceInfo> = serde_json::from_value(
+        value
+            .get("voices")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+    )
+    .context("parsing /voices response")?;
     if voices.is_empty() {
         println!("(no saved voices)");
     }
     for v in voices {
-        let tag = if v.has_ref_text { "  (has ref_text)" } else { "" };
+        let tag = if v.has_ref_text {
+            "  (has ref_text)"
+        } else {
+            ""
+        };
         println!("{}{tag}", v.name);
     }
     Ok(())
@@ -641,7 +621,11 @@ async fn cmd_transcribe(cfg: &Config, args: TranscribeArgs) -> Result<()> {
     let bytes = tokio::fs::read(&args.file)
         .await
         .with_context(|| format!("reading {}", args.file.display()))?;
-    let fields = asr_fields(&cfg.asr.model, args.language.as_deref().or(cfg.asr.language.as_deref()), args.format.as_str());
+    let fields = asr_fields(
+        &cfg.asr.model,
+        args.language.as_deref().or(cfg.asr.language.as_deref()),
+        args.format.as_str(),
+    );
     let file = Some((bytes, file_name(&args.file)));
     let text = transport
         .proxy_multipart("/v1/audio/transcriptions", &fields, file, "file")
@@ -679,7 +663,11 @@ fn asr_fields(model: &str, language: Option<&str>, format: &str) -> Vec<client::
 
 async fn cmd_realtime(cfg: &Config, globals: &GlobalArgs, args: RealtimeArgs) -> Result<()> {
     let transport = Transport::connect(cfg).await?;
-    let chunk = if args.chunk == 5 { cfg.audio.input.chunk_secs } else { f64::from(args.chunk as u32) };
+    let chunk = if args.chunk == 5 {
+        cfg.audio.input.chunk_secs
+    } else {
+        f64::from(args.chunk as u32)
+    };
     if !globals.quiet {
         eprintln!(
             "realtime [{}]: {chunk:.0}s chunks, device {}, {} -> {}; Ctrl-C to stop",
@@ -732,10 +720,20 @@ fn silence_floor(cfg: &Config) -> f64 {
     10f64.powf(cfg.audio.input.silence_threshold_db / 20.0)
 }
 
-async fn transcribe_chunk(transport: &Transport, cfg: &Config, lang: Option<&str>, wav: Vec<u8>) -> Result<String> {
+async fn transcribe_chunk(
+    transport: &Transport,
+    cfg: &Config,
+    lang: Option<&str>,
+    wav: Vec<u8>,
+) -> Result<String> {
     let fields = asr_fields(&cfg.asr.model, lang, "json");
     transport
-        .proxy_multipart("/v1/audio/transcriptions", &fields, Some((wav, "chunk.wav".to_owned())), "file")
+        .proxy_multipart(
+            "/v1/audio/transcriptions",
+            &fields,
+            Some((wav, "chunk.wav".to_owned())),
+            "file",
+        )
         .await?
         .into_text("json")
 }
@@ -752,7 +750,12 @@ async fn translate_chunk(
     if args.to.eq_ignore_ascii_case("en") {
         let fields = asr_fields(&cfg.asr.model, None, "json");
         return transport
-            .proxy_multipart("/v1/audio/translations", &fields, Some((wav, "chunk.wav".to_owned())), "file")
+            .proxy_multipart(
+                "/v1/audio/translations",
+                &fields,
+                Some((wav, "chunk.wav".to_owned())),
+                "file",
+            )
             .await?
             .into_text("json");
     }
@@ -763,7 +766,13 @@ async fn translate_chunk(
     }
 }
 
-async fn chat_translate(transport: &Transport, url: &str, model: &str, text: &str, target: &str) -> Result<String> {
+async fn chat_translate(
+    transport: &Transport,
+    url: &str,
+    model: &str,
+    text: &str,
+    target: &str,
+) -> Result<String> {
     let body = serde_json::json!({
         "model": model,
         "messages": [
@@ -771,7 +780,10 @@ async fn chat_translate(transport: &Transport, url: &str, model: &str, text: &st
             { "role": "user", "content": text },
         ],
     });
-    let value = transport.proxy("POST", url, Some(body)).await?.into_json()?;
+    let value = transport
+        .proxy("POST", url, Some(body))
+        .await?
+        .into_json()?;
     value
         .pointer("/choices/0/message/content")
         .and_then(serde_json::Value::as_str)
@@ -795,8 +807,12 @@ async fn speak_text(
     text: &str,
     quiet: bool,
 ) -> Result<()> {
-    let instruct = args.instruct.as_deref().or(cfg.tts.instruct.as_deref());
-    let voice = if instruct.is_some() { None } else { Some(cfg.tts.voice.as_str()) };
+    let instruct = validate_instruct(args.instruct.as_deref().or(cfg.tts.instruct.as_deref()))?;
+    let voice = if instruct.is_some() {
+        None
+    } else {
+        Some(cfg.tts.voice.as_str())
+    };
     let req = SpeakRequest {
         input: text,
         model: &cfg.tts.model,
@@ -804,12 +820,15 @@ async fn speak_text(
         response_format: &cfg.tts.format,
         speed: 1.0,
         language: spoken_lang(cfg, args),
-        instruct,
+        instruct: instruct.as_deref(),
         ref_text: None,
         duration: None,
         extra: gen_to_map(&cfg.tts.gen),
     };
-    let reply = transport.proxy("POST", "/v1/audio/speech", Some(req.to_body())).await?.into_audio()?;
+    let reply = transport
+        .proxy("POST", "/v1/audio/speech", Some(req.to_body()))
+        .await?
+        .into_audio()?;
     play_bytes(reply.bytes, reply.content_type, cfg, quiet).await
 }
 
