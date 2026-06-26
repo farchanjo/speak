@@ -245,14 +245,21 @@ pub struct General {
     pub log: Option<String>,
     /// Default save directory for `-o`.
     pub save_dir: Option<PathBuf>,
-    /// Retry attempts on transient errors.
-    pub retry: u32,
-    /// Retry backoff (milliseconds).
-    pub backoff_ms: u64,
     /// Chat-completions translation endpoint.
     pub translate_url: Option<String>,
     /// Chat translation model.
     pub translate_model: Option<String>,
+}
+
+/// `[retry]` resilience policy — the TOML projection of the domain
+/// [`crate::domain::retry::RetryPolicy`] value object (FR-17, ADR-0004). Every
+/// field is env-overridable so there are no hardcoded magic numbers (FR-18).
+#[derive(Debug, Clone)]
+pub struct Retry {
+    /// The resolved backoff/jitter/classification policy.
+    pub policy: crate::domain::retry::RetryPolicy,
+    /// Optional fixed jitter seed (unset => OS entropy) for reproducible runs.
+    pub jitter_seed: Option<u64>,
 }
 
 /// Fully-resolved configuration with per-key origins.
@@ -274,6 +281,8 @@ pub struct Config {
     pub daemon: Daemon,
     /// General section.
     pub general: General,
+    /// Retry/backoff resilience policy.
+    pub retry: Retry,
     entries: Vec<(String, String, Origin)>,
 }
 
@@ -314,6 +323,8 @@ pub struct FileConfig {
     daemon: FileDaemon,
     #[serde(default)]
     general: FileGeneral,
+    #[serde(default)]
+    retry: FileRetry,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -426,10 +437,19 @@ struct FileGeneral {
     temp_dir: Option<String>,
     log: Option<String>,
     save_dir: Option<String>,
-    retry: Option<u32>,
-    backoff_ms: Option<u64>,
     translate_url: Option<String>,
     translate_model: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct FileRetry {
+    max_retries: Option<u32>,
+    backoff_initial_ms: Option<u64>,
+    backoff_max_ms: Option<u64>,
+    multiplier: Option<f64>,
+    jitter: Option<bool>,
+    jitter_seed: Option<u64>,
+    retry_on: Option<Vec<String>>,
 }
 
 /// Load the TOML config, falling back to the legacy path, else empty.
@@ -573,6 +593,7 @@ impl Resolver {
         let realtime = self.realtime();
         let daemon = self.daemon();
         let general = self.general();
+        let retry = self.retry();
         Ok(Config {
             server,
             tts,
@@ -582,6 +603,7 @@ impl Resolver {
             realtime,
             daemon,
             general,
+            retry,
             entries: self.entries,
         })
     }
@@ -1057,20 +1079,6 @@ impl Resolver {
                     self.file.general.save_dir.clone(),
                 )
                 .map(PathBuf::from),
-            retry: self.val(
-                "general.retry",
-                None,
-                "SPEAK_RETRY",
-                self.file.general.retry,
-                2,
-            ),
-            backoff_ms: self.val(
-                "general.backoff_ms",
-                None,
-                "SPEAK_BACKOFF_MS",
-                self.file.general.backoff_ms,
-                250,
-            ),
             translate_url: self.opt(
                 "general.translate_url",
                 None,
@@ -1097,6 +1105,70 @@ impl Resolver {
             paths::config_file().display().to_string(),
             origin,
         );
+    }
+
+    fn retry(&mut self) -> Retry {
+        use crate::domain::retry::RetryPolicy;
+        let policy = RetryPolicy {
+            max_retries: self.val(
+                "retry.max_retries",
+                None,
+                "SPEAK_RETRY_MAX",
+                self.file.retry.max_retries,
+                3,
+            ),
+            backoff_initial_ms: self.val(
+                "retry.backoff_initial_ms",
+                None,
+                "SPEAK_RETRY_BACKOFF_MS",
+                self.file.retry.backoff_initial_ms,
+                200,
+            ),
+            backoff_max_ms: self.val(
+                "retry.backoff_max_ms",
+                None,
+                "SPEAK_RETRY_BACKOFF_MAX_MS",
+                self.file.retry.backoff_max_ms,
+                5_000,
+            ),
+            multiplier: self.val(
+                "retry.multiplier",
+                None,
+                "SPEAK_RETRY_MULTIPLIER",
+                self.file.retry.multiplier,
+                2.0,
+            ),
+            jitter: self.val(
+                "retry.jitter",
+                None,
+                "SPEAK_RETRY_JITTER",
+                self.file.retry.jitter,
+                true,
+            ),
+            retry_on: self.retry_on(),
+        };
+        let jitter_seed = self.opt(
+            "retry.jitter_seed",
+            None,
+            "SPEAK_RETRY_JITTER_SEED",
+            self.file.retry.jitter_seed,
+        );
+        Retry {
+            policy,
+            jitter_seed,
+        }
+    }
+
+    fn retry_on(&mut self) -> crate::domain::retry::RetryOn {
+        let file_spec = self.file.retry.retry_on.as_ref().map(|v| v.join("+"));
+        let spec = self.val(
+            "retry.retry_on",
+            None,
+            "SPEAK_RETRY_ON",
+            file_spec,
+            "connect+timeout+5xx+429".to_owned(),
+        );
+        crate::domain::retry::RetryOn::parse(&spec)
     }
 }
 

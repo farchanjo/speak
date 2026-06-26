@@ -4,9 +4,9 @@
 //! backoff schedule (with optional equal jitter) and classifies which transient
 //! error kinds are retryable. The randomness for jitter is injected as a seed in
 //! `[0.0, 1.0)` so the computation stays deterministic and unit-testable; the
-//! composition root supplies the entropy. The actual retry *loop* lives in the
-//! transport-agnostic decorator (T046); this type only answers "retry?" and
-//! "how long do I wait?".
+//! caller supplies the entropy. This type only answers "retry?" and "how long do
+//! I wait?"; the retry *loop* lives in the HTTP client today and will move to a
+//! generic transport-agnostic port decorator (T046).
 
 use std::time::Duration;
 
@@ -40,7 +40,12 @@ pub struct RetryOn {
 
 impl Default for RetryOn {
     fn default() -> Self {
-        Self { connect: true, timeout: true, server_5xx: true, too_many: true }
+        Self {
+            connect: true,
+            timeout: true,
+            server_5xx: true,
+            too_many: true,
+        }
     }
 }
 
@@ -48,7 +53,12 @@ impl RetryOn {
     /// Parse the `connect+timeout+5xx+429` token list (`+` or `,` separated).
     #[must_use]
     pub fn parse(spec: &str) -> Self {
-        let mut out = Self { connect: false, timeout: false, server_5xx: false, too_many: false };
+        let mut out = Self {
+            connect: false,
+            timeout: false,
+            server_5xx: false,
+            too_many: false,
+        };
         for token in spec.split(['+', ',', ' ']).filter(|t| !t.is_empty()) {
             match token.trim().to_ascii_lowercase().as_str() {
                 "connect" => out.connect = true,
@@ -167,7 +177,10 @@ mod tests {
 
     #[test]
     fn jitter_stays_within_bounds() {
-        let p = RetryPolicy { jitter: true, ..fixed() };
+        let p = RetryPolicy {
+            jitter: true,
+            ..fixed()
+        };
         // attempt 0 -> capped 100ms -> equal jitter in [50, 100].
         assert_eq!(p.delay_for(0, 0.0), Duration::from_millis(50));
         assert_eq!(p.delay_for(0, 1.0), Duration::from_millis(100));

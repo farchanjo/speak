@@ -14,14 +14,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::config::Config;
+use crate::domain::retry::{ErrorKind, RetryPolicy};
 
 /// HTTP core bound to a single server + optional bearer key, with retry.
 pub struct SpeechClient {
     http: Client,
     base: String,
     api_key: Option<String>,
-    retry: u32,
-    backoff_ms: u64,
+    policy: RetryPolicy,
+    jitter_seed: Option<u64>,
 }
 
 /// Parameters for a TTS request. `voice` => clone a saved voice; `instruct`
@@ -190,8 +191,8 @@ impl SpeechClient {
             http: builder.build().context("building HTTP client")?,
             base: s.host.trim_end_matches('/').to_owned(),
             api_key: s.api_key.clone(),
-            retry: cfg.general.retry,
-            backoff_ms: cfg.general.backoff_ms,
+            policy: cfg.retry.policy,
+            jitter_seed: cfg.retry.jitter_seed,
         })
     }
 
@@ -217,14 +218,34 @@ impl SpeechClient {
                 return builder.send().await.map_err(Into::into);
             };
             match clone.send().await {
-                Ok(resp) => return Ok(resp),
-                Err(e) if attempt < self.retry && (e.is_connect() || e.is_timeout()) => {
+                Ok(resp) => match retryable_status(resp.status()) {
+                    Some(kind) if self.policy.should_retry(attempt, kind) => {
+                        self.backoff(attempt).await;
+                        attempt += 1;
+                    }
+                    _ => return Ok(resp),
+                },
+                Err(e) if self.policy.should_retry(attempt, classify(&e)) => {
+                    self.backoff(attempt).await;
                     attempt += 1;
-                    let delay = self.backoff_ms.saturating_mul(u64::from(attempt));
-                    tokio::time::sleep(Duration::from_millis(delay)).await;
                 }
                 Err(e) => return Err(e.into()),
             }
+        }
+    }
+
+    /// Sleep for the policy-computed delay before retry `attempt`.
+    async fn backoff(&self, attempt: u32) {
+        let delay = self.policy.delay_for(attempt, self.seed(attempt));
+        tokio::time::sleep(delay).await;
+    }
+
+    /// Jitter entropy in `[0.0, 1.0)`: deterministic when a seed is configured,
+    /// else derived from the OS clock so the pure policy stays testable.
+    fn seed(&self, attempt: u32) -> f64 {
+        match self.jitter_seed {
+            Some(seed) => deterministic_seed(seed, attempt),
+            None => os_seed(),
         }
     }
 
@@ -268,6 +289,47 @@ impl SpeechClient {
             .await?;
         collect(resp).await
     }
+}
+
+/// Map a transport-level reqwest error to a retry classification (connect /
+/// timeout are retryable; everything else is terminal).
+fn classify(e: &reqwest::Error) -> ErrorKind {
+    if e.is_connect() {
+        ErrorKind::Connect
+    } else if e.is_timeout() {
+        ErrorKind::Timeout
+    } else {
+        ErrorKind::Other
+    }
+}
+
+/// Classify an HTTP status for retry: 429 and any 5xx are retryable.
+fn retryable_status(status: reqwest::StatusCode) -> Option<ErrorKind> {
+    if status.as_u16() == 429 {
+        Some(ErrorKind::TooMany429)
+    } else if status.is_server_error() {
+        Some(ErrorKind::Server5xx)
+    } else {
+        None
+    }
+}
+
+/// OS-clock-derived jitter entropy in `[0.0, 1.0)`.
+fn os_seed() -> f64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0);
+    f64::from(nanos) / 1_000_000_000.0
+}
+
+/// Reproducible jitter entropy in `[0.0, 1.0)` from a fixed seed + attempt.
+fn deterministic_seed(seed: u64, attempt: u32) -> f64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (seed, attempt).hash(&mut hasher);
+    (hasher.finish() % 1_000_000) as f64 / 1_000_000.0
 }
 
 async fn collect(resp: reqwest::Response) -> Result<ProxyReply> {

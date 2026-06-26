@@ -5,4 +5,5 @@
 //! the other way.
 
 pub mod gen_params;
+pub mod retry;
 pub mod voice_design;

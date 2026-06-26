@@ -88,7 +88,14 @@ color = true
 # temp_dir = "/tmp"
 # log = "info"                # SPEAK_LOG level; "off" disables file logging
 # save_dir = "~/Audio"        # default directory for say -o
-retry = 2                     # retry attempts on transient HTTP errors
-backoff_ms = 250              # base retry backoff (milliseconds)
 # translate_url = "http://solaris:8800/v1/chat/completions"
 # translate_model = "gpt-4o-mini"
+
+[retry]                       # exponential-backoff + jitter resilience policy
+# max_retries = 3             # SPEAK_RETRY_MAX (total tries = max_retries + 1)
+# backoff_initial_ms = 200    # SPEAK_RETRY_BACKOFF_MS; first-retry delay floor
+# backoff_max_ms = 5000       # SPEAK_RETRY_BACKOFF_MAX_MS; delay ceiling
+# multiplier = 2.0            # SPEAK_RETRY_MULTIPLIER; geometric growth factor
+# jitter = true               # SPEAK_RETRY_JITTER; equal jitter on each delay
+# jitter_seed = 0             # SPEAK_RETRY_JITTER_SEED; fix the RNG (reproducible)
+# retry_on = ["connect", "timeout", "5xx", "429"]   # SPEAK_RETRY_ON
