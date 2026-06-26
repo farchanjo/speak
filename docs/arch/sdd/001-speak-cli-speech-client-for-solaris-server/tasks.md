@@ -116,13 +116,16 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   to the source transcript with a clear notice (FR-8 / ADR-0004).
 - [ ] T046 `[adapter:retry]` transport-agnostic retry **decorator(s)**: for each
   wrapped driven port (`Synthesizer`, `Transcriber`, `Translator`,
-  `VoiceRepository`, `RealtimeStream`, `ServerProbe`, daemon forward) a generic
+  `VoiceRepository`, `RealtimeStream`, `ServerProbe`) a generic
   decorator that **implements that same port** (so it is substitutable for the
   concrete adapter) and consults the injected `RetryPolicy` **Strategy** (T023,
   driven by `domain::RetryPolicy`) for the backoff schedule. The decorator is
   NOT itself the `RetryPolicy` port; it is a port-preserving wrapper that calls
   the policy. Bounded exponential backoff + jitter, `retry_on` classification
-  (connect/timeout/5xx/429); the `sse` reconnect rides the same policy.
+  (connect/timeout/5xx/429); the `sse` reconnect rides the same policy. The
+  CLI-side daemon-forward path is not a driven port: its decorator preserves the
+  application **Facade** surface (`CommandTransport`, ADR-0005), retrying the
+  socket connect/forward under the same Strategy.
   Configured from `[retry]`, injected at the composition root (FR-17 / ADR-0004).
   (Partial: the seeded backoff loop now lives in the reqwest `SpeechClient` and
   honors the full `retry_on` classification incl. 5xx/429 responses; extraction
@@ -131,7 +134,9 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
 ## Application (use cases)
 
 - [ ] T040 `[application]` `say` use case (TTS: voice modes, format, gen-params,
-  play vs `-o`/`--no-play`, multi-output).
+  play vs `-o`/`--no-play`, multi-output). A bare `-o` filename resolves under
+  `[http].save_dir` (`SPEAK_SAVE_DIR`, default CWD); on `--json` surface the
+  server's `X-RTF`/`X-Audio-Seconds` headers when present (FR-1).
 - [ ] T041 `[application]` `transcribe` and `translate` (file) use cases.
 - [ ] T042 `[application]` `voices` use case (add/list/rm via `VoiceRepository`).
 - [ ] T043 `[application]` `record` use case (capture -> WAV/FLAC file).

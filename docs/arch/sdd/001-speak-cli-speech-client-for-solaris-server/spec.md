@@ -74,7 +74,13 @@ The codebase follows Hexagonal architecture with DDD and named GoF patterns
    `--native`. Default `language=pt-BR`, `format=mp3`. Plays the decoded audio
    locally unless `-o FILE` or `--no-play`. `--format` selects
    `mp3|opus|aac|flac|wav|pcm`; `--duration` and `--speed` tune output.
-   `--output-device` is repeatable (single device or fan-out, FR-11).
+   `--output-device` is repeatable (single device or fan-out, FR-11). When `-o`
+   is a bare filename (no directory component) the file lands under
+   `[http].save_dir` (`SPEAK_SAVE_DIR`); an absolute or directory-qualified `-o`
+   path is honoured as given, and an unset `save_dir` resolves to the current
+   working directory. On `--json` (FR-16) the synthesis result also surfaces the
+   server's inference-timing response headers `X-RTF` and `X-Audio-Seconds` when
+   the server returns them.
 2. **Voice modes** — exactly one of: `--voice <saved-name>` (clone, optionally
    with `--ref-text`); `--instruct "<tags>"` (voice design, FR-3); or neither
    (server default/auto). `--list-designs` prints the canonical tag vocabulary.

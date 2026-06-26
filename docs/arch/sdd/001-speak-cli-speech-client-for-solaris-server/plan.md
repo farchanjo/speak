@@ -112,6 +112,9 @@ flowchart TD
   case drives the `ServerProbe` port plus the `accel` cross-cutting probe;
   `config`/`devices`/`completions` are thin CLI adapters with no dedicated use
   case. An application **Facade** exposes one surface to both CLI and daemon.
+  The `say` use case resolves a bare `-o` filename under `[http].save_dir`
+  (`SPEAK_SAVE_DIR`, default the CWD) and, on `--json`, surfaces the server's
+  `X-RTF` / `X-Audio-Seconds` inference-timing headers when present (FR-1).
 - **adapters** (`src/adapters/`):
   - `openai` — async-openai client; typed + `_byot`; implements `Synthesizer`,
     `Transcriber`, `Translator`, `VoiceRepository`.
@@ -131,12 +134,15 @@ flowchart TD
     (ADR-0004). The default English path stays on the `openai` adapter.
   - `retry` — transport-agnostic, **port-preserving** decorators: one generic
     wrapper per driven port (`Synthesizer`, `Transcriber`, `Translator`,
-    `VoiceRepository`, `RealtimeStream`, `ServerProbe`, daemon forward) that
+    `VoiceRepository`, `RealtimeStream`, `ServerProbe`) that
     **implements the same port it wraps** and consults the `RetryPolicy`
     Strategy (bounded exponential backoff + jitter from `[retry]`, `retry_on`
     classification). The decorator is NOT the `RetryPolicy` port; it is
     substitutable for the concrete adapter the use case holds, and is wired at
-    the composition root (ADR-0004).
+    the composition root (ADR-0004). The CLI-side daemon-forward client is not a
+    driven port; its retry decorator preserves the application **Facade** surface
+    (the `CommandTransport` shared by the in-process and socket-forward paths,
+    ADR-0005), retrying the socket connect/forward under the same Strategy.
   - `config` — TOML + env + default precedence; implements `ConfigProvider`.
   - `daemon` — Unix-socket driving adapter (length-prefixed framing, SSE
     pass-through) reusing the same use cases (ADR-0005).
