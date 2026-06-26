@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "id": "019f0574-db78-7f83-aae3-2e4a4a9de16b",
+    "number": "001",
+    "slug": "speak-cli-speech-client-for-solaris-server",
+    "branch": "001-speak-cli-speech-client-for-solaris-server",
+    "dir": "docs/arch/sdd/001-speak-cli-speech-client-for-solaris-server",
+    "status": "tasked",
+    "createdAt": "2026-06-26T19:42:52.280691Z"
+  }
+]
