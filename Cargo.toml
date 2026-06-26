@@ -34,6 +34,14 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 ffmpeg-the-third = "5.0.0"
+# OpenAI-compatible client (typed endpoints + `_byot` extended speech request)
+# and the realtime SSE consumer (ADR-0004 / T002). Not yet wired into the
+# adapters — the flat reqwest client stays in place until the openai/sse
+# adapters land — but kept building so the migration can proceed incrementally.
+# `rustls` keeps the TLS backend aligned with the existing reqwest config and
+# avoids pulling an OpenSSL/native-tls toolchain.
+async-openai = { version = "0.41", default-features = false, features = ["rustls"] }
+eventsource-stream = "0.2"
 
 # Native macOS audio I/O (CoreAudio / AVFAudio) — device output + mixer + mic capture.
 [target.'cfg(target_os = "macos")'.dependencies]

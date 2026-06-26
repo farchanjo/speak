@@ -19,9 +19,13 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
 - [x] T001 `[build]` Cargo manifest: tokio, clap+clap_complete, serde/serde_json,
   toml, anyhow, tracing(+appender), ffmpeg-the-third, objc2/objc2-foundation/
   objc2-avf-audio/block2; `[profile.release]` lto/strip/codegen-units=1.
-- [ ] T002 `[build]` Add `async-openai` 0.41.x and `eventsource-stream`; plan the
+- [x] T002 `[build]` Add `async-openai` 0.41.x and `eventsource-stream`; plan the
   migration off direct `reqwest` use to the async-openai client (keep
   `reqwest` only transitively).
+  (`async-openai = 0.41` with `default-features = false, features = ["rustls"]`
+  and `eventsource-stream = 0.2` are now manifest dependencies and build green;
+  they are not yet wired — the flat `reqwest` `SpeechClient` stays in place until
+  the `openai`/`sse` adapters land in a later stage.)
 - [x] T003 `[cross]` `accel`: OS/arch probe, libav hwdevice + AudioToolbox
   decoders, `SPEAK_HWACCEL=auto|off|<decoder>` policy, frame threading
   (ADR-0002).
