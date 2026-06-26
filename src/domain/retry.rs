@@ -215,4 +215,48 @@ mod tests {
         let p = fixed();
         assert!(!p.should_retry(0, ErrorKind::Other));
     }
+
+    #[test]
+    fn no_jitter_returns_capped_delay_verbatim() {
+        let p = fixed();
+        assert_eq!(p.delay_for(0, 0.5), Duration::from_millis(100));
+        assert_eq!(p.delay_for(1, 0.99), Duration::from_millis(200));
+    }
+
+    #[test]
+    fn retry_on_parses_comma_and_space_separators() {
+        let on = RetryOn::parse("connect, timeout 5xx");
+        assert!(on.allows(ErrorKind::Connect));
+        assert!(on.allows(ErrorKind::Timeout));
+        assert!(on.allows(ErrorKind::Server5xx));
+        assert!(!on.allows(ErrorKind::TooMany429));
+    }
+
+    #[test]
+    fn retry_on_ignores_unknown_tokens() {
+        let on = RetryOn::parse("connect+bogus+server");
+        assert!(on.allows(ErrorKind::Connect));
+        assert!(on.allows(ErrorKind::Server5xx));
+        assert!(!on.allows(ErrorKind::Timeout));
+    }
+
+    #[test]
+    fn default_policy_matches_documented_knobs() {
+        let p = RetryPolicy::default();
+        assert_eq!(p.max_retries, 3);
+        assert_eq!(p.backoff_initial_ms, 200);
+        assert_eq!(p.backoff_max_ms, 5_000);
+        assert!((p.multiplier - 2.0).abs() < f64::EPSILON);
+        assert!(p.jitter);
+        assert!(p.retry_on.allows(ErrorKind::TooMany429));
+    }
+
+    #[test]
+    fn zero_max_retries_never_retries() {
+        let p = RetryPolicy {
+            max_retries: 0,
+            ..fixed()
+        };
+        assert!(!p.should_retry(0, ErrorKind::Connect));
+    }
 }

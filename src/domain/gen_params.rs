@@ -107,4 +107,36 @@ mod tests {
     fn requires_key_value() {
         assert!(parse_overrides(&["num_step".to_owned()]).is_err());
     }
+
+    #[test]
+    fn canonical_key_passes_known_keys_through() {
+        assert_eq!(canonical_key("guidance_scale").unwrap(), "guidance_scale");
+        assert_eq!(canonical_key("denoise").unwrap(), "denoise");
+        assert_eq!(canonical_key("steps").unwrap(), "num_step");
+    }
+
+    #[test]
+    fn canonical_set_has_expected_arity() {
+        // The 11 documented gen-param keys (the `steps` alias is excluded).
+        assert_eq!(CANONICAL_KEYS.len(), 11);
+        assert!(CANONICAL_KEYS.contains(&"num_step"));
+        assert!(!CANONICAL_KEYS.contains(&"steps"));
+    }
+
+    #[test]
+    fn rejects_empty_value() {
+        assert!(parse_overrides(&["num_step=".to_owned()]).is_err());
+    }
+
+    #[test]
+    fn trims_key_and_value_whitespace() {
+        let map = parse_overrides(&[" guidance_scale = 3 ".to_owned()]).unwrap();
+        assert_eq!(map.get("guidance_scale"), Some(&Value::from(3)));
+    }
+
+    #[test]
+    fn later_override_wins_for_same_key() {
+        let map = parse_overrides(&["num_step=8".to_owned(), "num_step=24".to_owned()]).unwrap();
+        assert_eq!(map.get("num_step"), Some(&Value::from(24)));
+    }
 }
