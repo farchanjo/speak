@@ -39,6 +39,6 @@ Principle 4 (Hexagonal + DDD + GoF) is recorded in
 `accepted`, deciders `[farchanjo]`). Principle 5 (in-process media,
 no exec) is recorded in
 `docs/arch/adr/0001-speak-cli-speech-client-for-solaris-server.md`.
-The full set of accepted ADRs (0001–0007) under `docs/arch/adr/` forms
+The full set of accepted ADRs (0001–0008) under `docs/arch/adr/` forms
 the binding decision record; any change to a principle above must amend
 or supersede the corresponding ADR.
