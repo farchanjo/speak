@@ -14,8 +14,20 @@ use tracing_subscriber::EnvFilter;
 
 /// Env var selecting the log level / filter.
 pub const ENV_LEVEL: &str = "SPEAK_LOG";
-/// How many rotated files to keep.
-const RETENTION: usize = 7;
+/// Env var overriding the rotated-file retention count.
+pub const ENV_RETENTION: &str = "SPEAK_LOG_RETENTION";
+/// Default number of rotated files to keep (overridable via [`ENV_RETENTION`]).
+const DEFAULT_RETENTION: usize = 7;
+
+/// Resolve the rotated-file retention from `SPEAK_LOG_RETENTION`, else default.
+#[must_use]
+pub fn retention() -> usize {
+    std::env::var(ENV_RETENTION)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(DEFAULT_RETENTION)
+}
 
 /// Resolve the log directory (`SPEAK_LOG_DIR` or `~/.speak/logs`).
 #[must_use]
@@ -37,7 +49,7 @@ pub fn init() -> Option<WorkerGuard> {
         .rotation(Rotation::DAILY)
         .filename_prefix("speak")
         .filename_suffix("log")
-        .max_log_files(RETENTION)
+        .max_log_files(retention())
         .build(&dir)
         .ok()?;
     let (writer, guard) = tracing_appender::non_blocking(appender);
@@ -52,4 +64,42 @@ pub fn init() -> Option<WorkerGuard> {
         .try_init()
         .ok()?;
     Some(guard)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testenv::ENV_LOCK;
+
+    fn with_retention<T>(value: Option<&str>, body: impl FnOnce() -> T) -> T {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var(ENV_RETENTION).ok();
+        match value {
+            // SAFETY: env mutation is serialised on ENV_LOCK across all tests.
+            Some(v) => unsafe { std::env::set_var(ENV_RETENTION, v) },
+            None => unsafe { std::env::remove_var(ENV_RETENTION) },
+        }
+        let out = body();
+        match prev {
+            Some(v) => unsafe { std::env::set_var(ENV_RETENTION, v) },
+            None => unsafe { std::env::remove_var(ENV_RETENTION) },
+        }
+        out
+    }
+
+    #[test]
+    fn retention_defaults_when_unset() {
+        with_retention(None, || assert_eq!(retention(), DEFAULT_RETENTION));
+    }
+
+    #[test]
+    fn retention_honours_env_override() {
+        with_retention(Some("3"), || assert_eq!(retention(), 3));
+    }
+
+    #[test]
+    fn retention_ignores_zero_and_garbage() {
+        with_retention(Some("0"), || assert_eq!(retention(), DEFAULT_RETENTION));
+        with_retention(Some("nope"), || assert_eq!(retention(), DEFAULT_RETENTION));
+    }
 }

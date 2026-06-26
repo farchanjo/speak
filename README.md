@@ -133,7 +133,7 @@ Environment: `SPEAK_HOST SPEAK_API_KEY SPEAK_LANG SPEAK_VOICE SPEAK_FORMAT`.
   the server's). Run `speak check` to see what is available.
 - `SPEAK_LOG=<level|off>` — rotating file logs under `~/.speak/logs`
   (`info` default; `off` disables). `SPEAK_LOG_DIR` overrides the directory.
-  Logs rotate daily with a capped retention.
+  Logs rotate daily with a capped retention (`SPEAK_LOG_RETENTION`, default 7).
 
 TOML at `~/.config/speak/config.toml` (honours `XDG_CONFIG_HOME`):
 
