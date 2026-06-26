@@ -5,7 +5,14 @@ Layer tags map each task to the hexagonal layer it belongs to (ADR-0003):
 `[cross]`, `[build]`, `[docs]`. Order respects inward dependency flow
 (`domain -> ports -> adapters -> application -> driving adapters -> root`).
 `[x]` = present in the current tree (may need to move/refactor into the layered
-layout); `[ ]` = pending for the hexagonal rebuild.
+layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
+(`say`/`transcribe`/`translate`/`realtime`/`voices`/`daemon`/`check`/`health`/
+`config`/`completions`) is the shipped behavior behind the speckit
+`implemented` marker; the layered tree, the `async-openai` migration, the
+`record`/`devices` commands, multi-output fan-out, the realtime-mode flags, the
+`ServerProbe` capability/health port (T022), the `check`/`health` use case
+(T047), and the edition-2024 bump are the in-progress refactor tracked below
+(see spec.md "Implementation Status").
 
 ## Foundation (build + cross-cutting)
 
@@ -44,7 +51,11 @@ layout); `[ ]` = pending for the hexagonal rebuild.
 - [ ] T020 `[ports]` `Synthesizer`, `Transcriber`, `Translator`.
 - [ ] T021 `[ports]` `AudioSink` (single + multi-device), `AudioSource`,
   `AudioDecoder`, `AudioEncoder` (WAV/FLAC record output).
-- [ ] T022 `[ports]` `ConfigProvider`, `VoiceRepository`, `RealtimeStream`.
+- [ ] T022 `[ports]` `ConfigProvider`, `VoiceRepository`, `RealtimeStream`, and
+  `ServerProbe` (the capability/health port covering `GET /health`,
+  `GET /v1/models`, and the runtime `POST /v1/realtime/translate` probe of
+  FR-14 / ADR-0004 — the network calls behind `speak health`/`check` and the
+  SSE-vs-chunked selection).
 - [ ] T023 `[ports]` `RetryPolicy` port (the resilience Strategy the composition
   root injects around every network call) (FR-17 / ADR-0004).
 
@@ -70,8 +81,13 @@ layout); `[ ]` = pending for the hexagonal rebuild.
   (ADR-0007).
 - [ ] T036 `[adapter:sse]` `eventsource-stream` consumer decoding realtime frames
   `{type, text?, audio_b64?, format?, seq?}` into a typed `RealtimeFrame`;
-  implements `RealtimeStream`; feature-flag/stub when endpoint absent (ADR-0004).
-- [x] T037 `[adapter:config]` layered config (flags > env > `~/.speak/config.toml`
+  implements `RealtimeStream`. Selection is a **runtime** capability probe (via
+  `ServerProbe`), not a compile-time feature: one prebuilt binary detects the
+  endpoint at run time and falls back to the chunked ASR->MT->TTS loop when it
+  is absent (the `eventsource-stream` dependency is always linked; an optional
+  `realtime-sse` Cargo feature may gate the parser out only for size-constrained
+  builds) (ADR-0004).
+- [ ] T037 `[adapter:config]` layered config (flags > env > `~/.speak/config.toml`
   > default), migration from `~/.config/speak`, `config init` commented template,
   `config show` value+origin, `config path`; implements `ConfigProvider`
   (ADR-0006). Load the `[retry]` section (mapped to `domain::RetryPolicy`) and
@@ -90,12 +106,16 @@ layout); `[ ]` = pending for the hexagonal rebuild.
   `[http].translate_model` (non-OpenAI chat-MT endpoint), reusing the warm pool;
   selected when `--to` is non-English and `translate_url` is set, else degrade
   to the source transcript with a clear notice (FR-8 / ADR-0004).
-- [ ] T046 `[adapter:retry]` transport-agnostic retry **decorator** implementing
-  the `RetryPolicy` port over `domain::RetryPolicy`: bounded exponential backoff
-  + jitter, `retry_on` classification (connect/timeout/5xx/429), wrapping every
-  driven network adapter (`openai`, `chatmt`, `daemon` forward) and the `sse`
-  reconnect; configured from `[retry]`, injected at the composition root
-  (FR-17 / ADR-0004).
+- [ ] T046 `[adapter:retry]` transport-agnostic retry **decorator(s)**: for each
+  wrapped driven port (`Synthesizer`, `Transcriber`, `Translator`,
+  `VoiceRepository`, `RealtimeStream`, `ServerProbe`, daemon forward) a generic
+  decorator that **implements that same port** (so it is substitutable for the
+  concrete adapter) and consults the injected `RetryPolicy` **Strategy** (T023,
+  driven by `domain::RetryPolicy`) for the backoff schedule. The decorator is
+  NOT itself the `RetryPolicy` port; it is a port-preserving wrapper that calls
+  the policy. Bounded exponential backoff + jitter, `retry_on` classification
+  (connect/timeout/5xx/429); the `sse` reconnect rides the same policy.
+  Configured from `[retry]`, injected at the composition root (FR-17 / ADR-0004).
 
 ## Application (use cases)
 
@@ -107,30 +127,42 @@ layout); `[ ]` = pending for the hexagonal rebuild.
 - [ ] T044 `[application]` `realtime` use case with the three **Strategy** modes
   (`translate`/`no-translate`/`echo`), SSE or chunked, multi-output.
 - [ ] T045 `[application]` application **Facade** shared by CLI and daemon.
+- [ ] T047 `[application]` `check`/`health` use case: orchestrate the `ServerProbe`
+  port (`GET /health`, `GET /v1/models`, realtime capability probe) and the
+  `accel` cross-cutting probe into the data printed by `speak health` and
+  `speak check` (FR-14). `config`, `devices`, and `completions` remain thin CLI
+  adapters that read the `ConfigProvider`/device-enumeration adapters directly
+  and need no dedicated use case.
 
 ## Driving adapters + composition root
 
-- [x] T050 `[cli]` clap CLI surface: `say|tts`, `transcribe`, `translate`,
-  `realtime`, `record`, `voices`, `devices`, `daemon`, `check`, `health`,
-  `config`, `completions`; global flags with `env=`; `ValueEnum` choices.
+- [x] T050 `[cli]` clap CLI surface present in the current tree: `say|tts`,
+  `transcribe`, `translate`, `realtime`, `voices`, `daemon`, `check`, `health`,
+  `config`, `completions`; global flags with `env=`; `ValueEnum` choices. The
+  `record` and `devices` commands, the repeatable `--output-device`, the
+  per-call `say --voice` / `realtime --voice`, the `--translate`/
+  `--no-translate`/`--echo` realtime modes (replacing the current
+  `--repeat`/`--speak`), `--list-designs`, and the global `--json` flag are NOT
+  yet present and are added by T051/T055/T056.
 - [ ] T051 `[cli]` wire each subcommand to its use case (no business logic in
-  the CLI); `--output-device` repeatable on `say`/`realtime`; `say --voice`
-  (per-call clone, distinct from the TTS `--voice`/`alloy`), `realtime
+  the CLI); add the repeatable `--output-device` on `say`/`realtime`; `say
+  --voice` (per-call clone, distinct from the TTS `--voice`/`alloy`), `realtime
   --instruct/--voice` (output voice), `realtime --translate/--no-translate/
-  --echo` modes; `--list-designs`.
-- [ ] T055 `[cli]` wire `speak record` (`--output`, `--device`, `--format
-  wav|flac`, `--duration`, `--sample-rate`, `--channels`) to the `record` use
-  case (FR-9).
-- [ ] T056 `[cli]` wire `speak devices [--json]` to the device-enumeration
-  adapter (T035) and print input/output devices + `AudioDeviceID`s (FR-10).
+  --echo` modes; `--list-designs`; the global `--json` flag (FR-16).
 - [x] T052 `[adapter:daemon]` Unix-socket listener at `~/.speak/speak.sock`,
   length-prefixed framing, SSE pass-through, one-shot fallback (ADR-0005).
 - [ ] T053 `[adapter:daemon]` route framed requests through the shared
   application Facade (same use cases as the CLI).
 - [ ] T054 `[root]` `main.rs` composition root (**Factory**/DI): build the one
   warm async-openai client, construct the `RetryPolicy` from `[retry]` and wrap
-  every network adapter with the retry decorator (T046), wire adapters into use
-  cases, select CLI vs daemon.
+  every network adapter with its port-preserving retry decorator (T046), wire
+  the `check`/`health` use case to the `ServerProbe` adapter, wire all adapters
+  into use cases, select CLI vs daemon.
+- [ ] T055 `[cli]` wire `speak record` (`--output`, `--device`, `--format
+  wav|flac`, `--duration`, `--sample-rate`, `--channels`) to the `record` use
+  case (FR-9).
+- [ ] T056 `[cli]` wire `speak devices [--json]` to the device-enumeration
+  adapter (T035) and print input/output devices + `AudioDeviceID`s (FR-10).
 
 ## Verification
 

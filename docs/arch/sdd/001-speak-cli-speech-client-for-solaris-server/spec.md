@@ -2,7 +2,25 @@
 
 Feature: 001-speak-cli-speech-client-for-solaris-server
 Created: 2026-06-26
-Status: draft
+Status: accepted
+
+## Implementation Status
+
+The speckit phase marker is `implement` / status `implemented`: the feature is
+behaviorally implemented as a working client (`say`/`tts`, `transcribe`,
+`translate`, `realtime`, `voices`, `daemon`, `check`, `health`, `config`,
+`completions`) in the original **flat** module layout (`client.rs`, `codec.rs`,
+`audio_macos.rs`, `daemon.rs`, `config.rs`, ...). The Hexagonal + DDD + GoF
+layout of ADR-0003 (the `domain`/`ports`/`application`/`adapters`/`cli` tree),
+the `async-openai` + `eventsource-stream` migration, the `[retry]`/`[http]`
+config sections, the `record`/`devices` commands, the repeatable
+`--output-device` fan-out, the `--translate`/`--no-translate`/`--echo` realtime
+modes, and the edition-2024 bump are an **accepted but in-progress refactor**.
+Their tasks remain unchecked in `tasks.md` (whose checkbox legend reads
+`[x]` = present in the current tree, `[ ]` = pending for the hexagonal rebuild),
+so the `implemented` marker denotes the shipped flat-layout behavior, NOT
+completion of the layered architecture. This section is the single place that
+reconciles the speckit status with the source tree to avoid a silent mismatch.
 
 ## Summary
 
