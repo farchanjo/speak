@@ -404,3 +404,113 @@ async fn read_frame(stream: &mut UnixStream) -> Result<Vec<u8>> {
     stream.read_exact(&mut buf).await?;
     Ok(buf)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn frame_round_trips_arbitrary_bytes() {
+        let (mut a, mut b) = UnixStream::pair().unwrap();
+        let payload = b"length-prefixed frame".to_vec();
+        let expected = payload.clone();
+        let writer = tokio::spawn(async move {
+            write_frame(&mut a, &payload).await.unwrap();
+        });
+        let got = read_frame(&mut b).await.unwrap();
+        writer.await.unwrap();
+        assert_eq!(got, expected);
+    }
+
+    #[tokio::test]
+    async fn empty_frame_round_trips() {
+        let (mut a, mut b) = UnixStream::pair().unwrap();
+        let writer = tokio::spawn(async move {
+            write_frame(&mut a, &[]).await.unwrap();
+        });
+        assert!(read_frame(&mut b).await.unwrap().is_empty());
+        writer.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn two_sequential_frames_preserve_order() {
+        // Mirrors the header-then-body wire shape used by every reply.
+        let (mut a, mut b) = UnixStream::pair().unwrap();
+        let writer = tokio::spawn(async move {
+            write_frame(&mut a, b"header").await.unwrap();
+            write_frame(&mut a, b"body-bytes").await.unwrap();
+        });
+        assert_eq!(read_frame(&mut b).await.unwrap(), b"header");
+        assert_eq!(read_frame(&mut b).await.unwrap(), b"body-bytes");
+        writer.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn request_round_trips_through_a_socket() {
+        let (mut a, mut b) = UnixStream::pair().unwrap();
+        let request = Request {
+            op: "proxy".into(),
+            method: "POST".into(),
+            endpoint: "/v1/audio/speech".into(),
+            json: Some(json!({"input": "oi"})),
+            fields: vec![("name".into(), "narrator".into())],
+            has_file: true,
+            filename: "ref.wav".into(),
+            file_part: "audio".into(),
+        };
+        let encoded = serde_json::to_vec(&request).unwrap();
+        let writer = tokio::spawn(async move {
+            write_frame(&mut a, &encoded).await.unwrap();
+        });
+        let frame = read_frame(&mut b).await.unwrap();
+        writer.await.unwrap();
+        let decoded: Request = serde_json::from_slice(&frame).unwrap();
+        assert_eq!(decoded.op, "proxy");
+        assert_eq!(decoded.endpoint, "/v1/audio/speech");
+        assert_eq!(
+            decoded.fields,
+            vec![("name".to_owned(), "narrator".to_owned())]
+        );
+        assert!(decoded.has_file);
+        assert_eq!(decoded.filename, "ref.wav");
+        assert_eq!(decoded.json, Some(json!({"input": "oi"})));
+    }
+
+    #[test]
+    fn reply_header_serde_round_trips() {
+        let header = ReplyHeader {
+            ok: true,
+            error: None,
+            status: 200,
+            content_type: "audio/mpeg".into(),
+            rtf: Some("0.1".into()),
+            audio_seconds: Some("2.0".into()),
+        };
+        let bytes = serde_json::to_vec(&header).unwrap();
+        let back: ReplyHeader = serde_json::from_slice(&bytes).unwrap();
+        assert!(back.ok);
+        assert_eq!(back.status, 200);
+        assert_eq!(back.content_type, "audio/mpeg");
+        assert_eq!(back.rtf.as_deref(), Some("0.1"));
+    }
+
+    #[test]
+    fn request_deserializes_with_defaulted_optional_fields() {
+        // Only `op` is mandatory on the wire; the rest default.
+        let decoded: Request = serde_json::from_str(r#"{"op":"status"}"#).unwrap();
+        assert_eq!(decoded.op, "status");
+        assert_eq!(decoded.method, "");
+        assert!(decoded.json.is_none());
+        assert!(decoded.fields.is_empty());
+        assert!(!decoded.has_file);
+    }
+
+    #[test]
+    fn control_builds_a_bodyless_request() {
+        let req = control("stop");
+        assert_eq!(req.op, "stop");
+        assert!(req.endpoint.is_empty());
+        assert!(req.fields.is_empty());
+        assert!(!req.has_file);
+    }
+}

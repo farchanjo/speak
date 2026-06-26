@@ -353,3 +353,164 @@ async fn collect(resp: reqwest::Response) -> Result<ProxyReply> {
         body,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn base_request<'a>(extra: serde_json::Map<String, Value>) -> SpeakRequest<'a> {
+        SpeakRequest {
+            input: "hello",
+            model: "tts-1",
+            voice: None,
+            response_format: "mp3",
+            speed: 1.0,
+            language: "pt-BR",
+            instruct: None,
+            ref_text: None,
+            duration: None,
+            extra,
+        }
+    }
+
+    fn reply(status: u16, content_type: &str, body: &[u8]) -> ProxyReply {
+        ProxyReply {
+            status,
+            content_type: content_type.to_owned(),
+            rtf: None,
+            audio_seconds: None,
+            body: body.to_vec(),
+        }
+    }
+
+    #[test]
+    fn body_always_carries_core_fields() {
+        let body = base_request(serde_json::Map::new()).to_body();
+        assert_eq!(body["input"], json!("hello"));
+        assert_eq!(body["model"], json!("tts-1"));
+        assert_eq!(body["response_format"], json!("mp3"));
+        assert_eq!(body["language"], json!("pt-BR"));
+        assert_eq!(body["speed"], json!(1.0));
+    }
+
+    #[test]
+    fn body_omits_unset_optionals() {
+        let body = base_request(serde_json::Map::new()).to_body();
+        let obj = body.as_object().unwrap();
+        assert!(!obj.contains_key("voice"));
+        assert!(!obj.contains_key("instruct"));
+        assert!(!obj.contains_key("ref_text"));
+        assert!(!obj.contains_key("duration"));
+    }
+
+    #[test]
+    fn body_design_mode_carries_instruct() {
+        let mut req = base_request(serde_json::Map::new());
+        req.instruct = Some("Female, British Accent");
+        let body = req.to_body();
+        assert_eq!(body["instruct"], json!("Female, British Accent"));
+        assert!(!body.as_object().unwrap().contains_key("voice"));
+    }
+
+    #[test]
+    fn body_clone_mode_carries_voice_and_ref_text() {
+        let mut req = base_request(serde_json::Map::new());
+        req.voice = Some("narrator");
+        req.ref_text = Some("the quick brown fox");
+        req.duration = Some(3.5);
+        let body = req.to_body();
+        assert_eq!(body["voice"], json!("narrator"));
+        assert_eq!(body["ref_text"], json!("the quick brown fox"));
+        assert_eq!(body["duration"], json!(3.5));
+    }
+
+    #[test]
+    fn body_passes_through_gen_params() {
+        // The extended _byot surface the typed CreateSpeechRequest cannot express.
+        let mut extra = serde_json::Map::new();
+        extra.insert("num_step".into(), json!(24));
+        extra.insert("guidance_scale".into(), json!(3.0));
+        let body = base_request(extra).to_body();
+        assert_eq!(body["num_step"], json!(24));
+        assert_eq!(body["guidance_scale"], json!(3.0));
+    }
+
+    #[test]
+    fn into_text_extracts_json_text_field() {
+        let r = reply(200, "application/json", br#"{"text":"  bonjour  "}"#);
+        assert_eq!(r.into_text("json").unwrap(), "bonjour");
+    }
+
+    #[test]
+    fn into_text_passes_plain_format_through_trimmed() {
+        let r = reply(200, "text/plain", b"  plain transcript \n");
+        assert_eq!(r.into_text("text").unwrap(), "plain transcript");
+    }
+
+    #[test]
+    fn into_audio_rejects_empty_body() {
+        let r = reply(200, "audio/mpeg", b"");
+        assert!(r.into_audio().is_err());
+    }
+
+    #[test]
+    fn into_audio_returns_bytes_and_headers() {
+        let mut r = reply(200, "audio/mpeg", b"\x00\x01\x02");
+        r.rtf = Some("0.12".into());
+        r.audio_seconds = Some("1.5".into());
+        let audio = r.into_audio().unwrap();
+        assert_eq!(audio.bytes, vec![0, 1, 2]);
+        assert_eq!(audio.content_type, "audio/mpeg");
+        assert_eq!(audio.rtf.as_deref(), Some("0.12"));
+        assert_eq!(audio.audio_seconds.as_deref(), Some("1.5"));
+    }
+
+    #[test]
+    fn non_2xx_status_is_an_error() {
+        let r = reply(503, "text/plain", b"upstream busy");
+        let err = r.into_string().unwrap_err().to_string();
+        assert!(err.contains("503"), "{err}");
+        assert!(err.contains("upstream busy"), "{err}");
+    }
+
+    #[test]
+    fn into_json_parses_object() {
+        let r = reply(200, "application/json", br#"{"status":"ok"}"#);
+        let v = r.into_json().unwrap();
+        assert_eq!(v["status"], json!("ok"));
+    }
+
+    #[test]
+    fn retryable_status_classifies_5xx_and_429() {
+        use reqwest::StatusCode;
+        assert_eq!(
+            retryable_status(StatusCode::from_u16(429).unwrap()),
+            Some(ErrorKind::TooMany429)
+        );
+        assert_eq!(
+            retryable_status(StatusCode::from_u16(503).unwrap()),
+            Some(ErrorKind::Server5xx)
+        );
+        assert!(retryable_status(StatusCode::from_u16(404).unwrap()).is_none());
+        assert!(retryable_status(StatusCode::from_u16(200).unwrap()).is_none());
+    }
+
+    #[test]
+    fn seeds_stay_in_unit_interval() {
+        for attempt in 0..8u32 {
+            let s = deterministic_seed(42, attempt);
+            assert!(
+                (0.0..1.0).contains(&s),
+                "deterministic seed {s} out of range"
+            );
+        }
+        let o = os_seed();
+        assert!((0.0..1.0).contains(&o), "os seed {o} out of range");
+    }
+
+    #[test]
+    fn deterministic_seed_is_reproducible() {
+        assert_eq!(deterministic_seed(7, 2), deterministic_seed(7, 2));
+    }
+}

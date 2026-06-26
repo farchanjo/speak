@@ -142,3 +142,64 @@ fn available_at_decoders() -> Vec<String> {
         .map(|name| (*name).to_owned())
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testenv::ENV_LOCK;
+
+    fn with_hwaccel<T>(value: Option<&str>, body: impl FnOnce() -> T) -> T {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var(ENV_HWACCEL).ok();
+        match value {
+            Some(v) => std::env::set_var(ENV_HWACCEL, v),
+            None => std::env::remove_var(ENV_HWACCEL),
+        }
+        let out = body();
+        match prev {
+            Some(v) => std::env::set_var(ENV_HWACCEL, v),
+            None => std::env::remove_var(ENV_HWACCEL),
+        }
+        out
+    }
+
+    #[test]
+    fn policy_defaults_to_auto() {
+        with_hwaccel(None, || assert!(matches!(policy(), Policy::Auto)));
+        with_hwaccel(Some(""), || assert!(matches!(policy(), Policy::Auto)));
+        with_hwaccel(Some("auto"), || assert!(matches!(policy(), Policy::Auto)));
+    }
+
+    #[test]
+    fn policy_off_aliases() {
+        for v in ["off", "none", "false"] {
+            with_hwaccel(Some(v), || assert!(matches!(policy(), Policy::Off)));
+        }
+    }
+
+    #[test]
+    fn policy_named_decoder() {
+        with_hwaccel(Some("mp3_at"), || match policy() {
+            Policy::Named(name) => assert_eq!(name, "mp3_at"),
+            other => panic!("expected Named, got {other:?}"),
+        });
+    }
+
+    #[test]
+    fn resolve_decoder_off_yields_software_default() {
+        with_hwaccel(Some("off"), || assert_eq!(resolve_decoder("mp3"), None));
+    }
+
+    #[test]
+    fn resolve_decoder_named_forces_choice() {
+        with_hwaccel(Some("custom_dec"), || {
+            assert_eq!(resolve_decoder("mp3"), Some("custom_dec".to_owned()));
+        });
+    }
+
+    #[test]
+    fn version_string_unpacks_semver() {
+        // libav packs version as (major << 16) | (minor << 8) | micro.
+        assert_eq!(version_string((62 << 16) | (3 << 8) | 100), "62.3.100");
+    }
+}

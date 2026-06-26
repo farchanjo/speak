@@ -530,3 +530,117 @@ impl Drop for Resampler {
         unsafe { ffi::swr_free(ptr::addr_of_mut!(self.ctx)) };
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn read_u32_le(buf: &[u8], at: usize) -> u32 {
+        u32::from_le_bytes([buf[at], buf[at + 1], buf[at + 2], buf[at + 3]])
+    }
+
+    fn read_u16_le(buf: &[u8], at: usize) -> u16 {
+        u16::from_le_bytes([buf[at], buf[at + 1]])
+    }
+
+    #[test]
+    fn pcm_frames_and_duration() {
+        let pcm = Pcm {
+            samples: vec![0.0; 96_000], // 48_000 stereo frames
+            sample_rate: 48_000,
+            channels: 2,
+        };
+        assert_eq!(pcm.frames(), 48_000);
+        assert!((pcm.duration_secs() - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn pcm_duration_guards_against_zero_rate() {
+        let pcm = Pcm {
+            samples: vec![0.0; 10],
+            sample_rate: 0,
+            channels: 1,
+        };
+        // `max(1)` keeps the division finite rather than dividing by zero.
+        assert!(pcm.duration_secs().is_finite());
+    }
+
+    #[test]
+    fn rms_of_silence_is_zero() {
+        assert_eq!(rms_s16(&[]), 0.0);
+        assert_eq!(rms_s16(&[0, 0, 0, 0]), 0.0);
+    }
+
+    #[test]
+    fn rms_of_full_scale_is_near_one() {
+        let full = vec![i16::MAX; 1_000];
+        let rms = rms_s16(&full);
+        assert!((rms - 1.0).abs() < 1e-3, "rms {rms}");
+    }
+
+    #[test]
+    fn wav_header_is_well_formed_riff() {
+        let samples = [1i16, -2, 3, -4];
+        let wav = wav_mono16(&samples, ASR_RATE);
+        let data_len = (samples.len() * 2) as u32;
+        assert_eq!(wav.len() as u32, 44 + data_len);
+        assert_eq!(&wav[0..4], b"RIFF");
+        assert_eq!(read_u32_le(&wav, 4), 36 + data_len);
+        assert_eq!(&wav[8..12], b"WAVE");
+        assert_eq!(&wav[12..16], b"fmt ");
+        assert_eq!(read_u16_le(&wav, 20), 1); // PCM
+        assert_eq!(read_u16_le(&wav, 22), 1); // mono
+        assert_eq!(read_u32_le(&wav, 24), ASR_RATE);
+        assert_eq!(read_u32_le(&wav, 28), ASR_RATE * 2); // byte rate
+        assert_eq!(read_u16_le(&wav, 32), 2); // block align
+        assert_eq!(read_u16_le(&wav, 34), 16); // bits/sample
+        assert_eq!(&wav[36..40], b"data");
+        assert_eq!(read_u32_le(&wav, 40), data_len);
+    }
+
+    #[test]
+    fn wav_payload_round_trips_samples() {
+        let samples = [100i16, -100, 32_767, -32_768];
+        let wav = wav_mono16(&samples, 16_000);
+        let decoded = bytes_to_i16(&wav[44..]);
+        assert_eq!(decoded, samples);
+    }
+
+    #[test]
+    fn bytes_to_i16_ignores_trailing_partial_pair() {
+        assert_eq!(bytes_to_i16(&[1, 0, 0, 1, 7]), vec![1, 256]);
+    }
+
+    #[test]
+    fn bytes_to_f32_decodes_le_floats() {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&1.0f32.to_le_bytes());
+        buf.extend_from_slice(&(-0.5f32).to_le_bytes());
+        assert_eq!(bytes_to_f32(&buf), vec![1.0, -0.5]);
+    }
+
+    #[test]
+    fn log_level_names_map_to_libav_values() {
+        assert_eq!(log_level_value("quiet"), -8);
+        assert_eq!(log_level_value("error"), 16);
+        assert_eq!(log_level_value("warn"), 24);
+        assert_eq!(log_level_value("info"), 32);
+        assert_eq!(log_level_value("debug"), 48);
+        assert_eq!(log_level_value("nonsense"), 16); // defaults to error
+    }
+
+    #[test]
+    fn decode_options_default_is_all_cores_error_level() {
+        let opts = DecodeOptions::default();
+        assert_eq!(opts.threads, 0);
+        assert_eq!(opts.log_level, "error");
+    }
+
+    #[test]
+    fn playback_and_asr_constants_are_canonical() {
+        assert_eq!(PLAY_RATE, 48_000);
+        assert_eq!(PLAY_CHANNELS, 2);
+        assert_eq!(ASR_RATE, 16_000);
+        assert_eq!(ASR_CHANNELS, 1);
+    }
+}

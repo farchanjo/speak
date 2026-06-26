@@ -52,3 +52,97 @@ fn base_home() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testenv::ENV_LOCK;
+
+    /// Run `body` under one lock acquisition with the given vars `set` and the
+    /// given names removed, restoring every touched var afterwards. A single,
+    /// non-nesting helper avoids re-entrant locking on the non-reentrant Mutex.
+    fn scoped<T>(set: &[(&str, &str)], unset: &[&str], body: impl FnOnce() -> T) -> T {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut saved: Vec<(String, Option<String>)> = Vec::new();
+        for (k, v) in set {
+            saved.push(((*k).to_owned(), std::env::var(k).ok()));
+            std::env::set_var(k, v);
+        }
+        for k in unset {
+            saved.push(((*k).to_owned(), std::env::var(k).ok()));
+            std::env::remove_var(k);
+        }
+        let out = body();
+        for (k, prev) in saved.into_iter().rev() {
+            match prev {
+                Some(v) => std::env::set_var(&k, v),
+                None => std::env::remove_var(&k),
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn home_honours_speak_home_override() {
+        scoped(&[("SPEAK_HOME", "/tmp/speak-home")], &[], || {
+            assert_eq!(home(), PathBuf::from("/tmp/speak-home"));
+        });
+    }
+
+    #[test]
+    fn home_defaults_under_dot_speak() {
+        scoped(&[], &["SPEAK_HOME"], || {
+            assert!(home().ends_with(".speak"));
+        });
+    }
+
+    #[test]
+    fn config_file_honours_explicit_override() {
+        scoped(&[("SPEAK_CONFIG", "/etc/speak.toml")], &[], || {
+            assert_eq!(config_file(), PathBuf::from("/etc/speak.toml"));
+        });
+    }
+
+    #[test]
+    fn config_file_defaults_under_home() {
+        scoped(&[("SPEAK_HOME", "/tmp/h")], &["SPEAK_CONFIG"], || {
+            assert_eq!(config_file(), PathBuf::from("/tmp/h/config.toml"));
+        });
+    }
+
+    #[test]
+    fn default_socket_honours_override() {
+        scoped(&[("SPEAK_DAEMON_SOCKET", "/run/speak.sock")], &[], || {
+            assert_eq!(default_socket(), PathBuf::from("/run/speak.sock"));
+        });
+    }
+
+    #[test]
+    fn default_socket_defaults_under_home() {
+        scoped(
+            &[("SPEAK_HOME", "/tmp/h")],
+            &["SPEAK_DAEMON_SOCKET"],
+            || {
+                assert_eq!(default_socket(), PathBuf::from("/tmp/h/speak.sock"));
+            },
+        );
+    }
+
+    #[test]
+    fn empty_override_is_ignored() {
+        scoped(&[("SPEAK_HOME", "")], &[], || {
+            // An empty value must not shadow the default `~/.speak` resolution.
+            assert!(home().ends_with(".speak"));
+        });
+    }
+
+    #[test]
+    fn legacy_config_uses_xdg_config_home() {
+        scoped(&[("XDG_CONFIG_HOME", "/tmp/xdg")], &[], || {
+            assert_eq!(
+                legacy_config_file(),
+                PathBuf::from("/tmp/xdg/speak/config.toml")
+            );
+        });
+    }
+}
