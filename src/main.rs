@@ -79,6 +79,11 @@ enum Command {
     Translate(TranslateArgs),
     /// Capture the microphone and translate it live until Ctrl-C.
     Realtime(RealtimeArgs),
+    /// Manage saved voices for cloning.
+    Voices {
+        #[command(subcommand)]
+        action: VoicesAction,
+    },
     /// Print the server `/health` JSON.
     Health,
     /// Manage the config file.
@@ -111,6 +116,21 @@ struct SayArgs {
     /// Audio response format (overrides config / SPEAK_FORMAT).
     #[arg(long, value_enum, value_name = "FMT")]
     format: Option<AudioFormat>,
+    /// Voice design tags, comma-separated (e.g. "Female, British Accent").
+    #[arg(long, value_name = "TAGS")]
+    instruct: Option<String>,
+    /// Reference transcript when cloning a saved voice.
+    #[arg(long, value_name = "TEXT")]
+    ref_text: Option<String>,
+    /// Target duration hint in seconds.
+    #[arg(long, value_name = "SECS")]
+    duration: Option<f32>,
+    /// Repeatable generation param, key=value (e.g. --set num_step=32).
+    #[arg(long = "set", value_name = "KEY=VALUE")]
+    set: Vec<String>,
+    /// Print the valid voice-design tags and exit.
+    #[arg(long)]
+    list_designs: bool,
     /// Use the server's native `/tts` endpoint instead of `/v1/audio/speech`.
     #[arg(long)]
     native: bool,
@@ -167,6 +187,48 @@ enum ConfigAction {
     /// Print the effective (resolved) configuration.
     Show,
 }
+
+#[derive(Subcommand, Debug)]
+enum VoicesAction {
+    /// Save a voice from a reference audio file.
+    Add(VoiceAddArgs),
+    /// List saved voices.
+    List,
+    /// Delete a saved voice.
+    Rm {
+        /// Voice name.
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
+}
+
+#[derive(Args, Debug)]
+struct VoiceAddArgs {
+    /// Voice name to register.
+    #[arg(value_name = "NAME")]
+    name: String,
+    /// Reference audio file.
+    #[arg(long, value_name = "FILE")]
+    audio: PathBuf,
+    /// Reference transcript for the audio.
+    #[arg(long, value_name = "TEXT")]
+    ref_text: Option<String>,
+}
+
+/// Canonical voice-design tags accepted by the server's `instruct` field.
+const DESIGN_TAGS: &[&str] = &[
+    "male", "female", "child", "teenager", "young adult", "middle-aged", "elderly",
+    "very low pitch", "low pitch", "moderate pitch", "high pitch", "very high pitch", "whisper",
+    "american accent", "australian accent", "british accent", "canadian accent", "chinese accent",
+    "indian accent", "japanese accent", "korean accent", "portuguese accent", "russian accent",
+];
+
+/// Keys accepted by `say --set key=value` (pass-through generation params).
+const GEN_PARAM_KEYS: &[&str] = &[
+    "num_step", "steps", "num_steps", "guidance_scale", "t_shift", "layer_penalty_factor",
+    "position_temperature", "class_temperature", "denoise", "preprocess_prompt",
+    "postprocess_output", "audio_chunk_duration", "audio_chunk_threshold",
+];
 
 /// OpenAI audio response formats.
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -233,6 +295,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Transcribe(args) => cmd_transcribe(&cfg, args).await,
         Command::Translate(args) => cmd_translate(&cfg, args).await,
         Command::Realtime(args) => cmd_realtime(&cfg, &cli.globals, args).await,
+        Command::Voices { action } => cmd_voices(&cfg, action).await,
         Command::Completions { .. } => Ok(()),
     }
 }
@@ -281,32 +344,130 @@ fn cmd_config(action: ConfigAction, cfg: &Config) -> Result<()> {
 }
 
 async fn cmd_say(cfg: &Config, globals: &GlobalArgs, args: SayArgs) -> Result<()> {
+    if args.list_designs {
+        println!("Valid voice-design tags (use with --instruct, comma-separated):");
+        for tag in DESIGN_TAGS {
+            println!("  {tag}");
+        }
+        return Ok(());
+    }
     let client = SpeechClient::new(cfg)?;
-    let text = resolve_text(args.text)?;
-    let response_format = args.format.map_or_else(|| cfg.format.clone(), |f| f.as_str().to_owned());
-    let reply = if args.native {
-        client.speak_native(&text, &cfg.lang, args.speed).await?
-    } else {
-        let req = SpeakRequest {
-            input: &text,
-            model: &cfg.tts_model,
-            voice: &cfg.voice,
-            response_format: &response_format,
-            speed: args.speed,
-            language: &cfg.lang,
-        };
-        client.speak(&req).await?
-    };
+    let text = resolve_text(&args.text)?;
+    let format = args.format.map_or_else(|| cfg.format.clone(), |f| f.as_str().to_owned());
+    let reply = synthesize(&client, cfg, &args, &text, &format).await?;
     if let Some(path) = &args.out {
         tokio::fs::write(path, &reply.bytes).await?;
         if !globals.quiet {
             eprintln!("saved {} bytes to {}", reply.bytes.len(), path.display());
         }
     }
+    if !globals.quiet {
+        report_synth(&reply);
+    }
     if !args.no_play {
         play_bytes(reply.bytes, reply.content_type, globals.quiet).await?;
     }
     Ok(())
+}
+
+async fn synthesize(
+    client: &SpeechClient,
+    cfg: &Config,
+    args: &SayArgs,
+    text: &str,
+    format: &str,
+) -> Result<client::AudioReply> {
+    if args.native {
+        return client.speak_native(text, &cfg.lang, args.speed).await;
+    }
+    let (voice, instruct) = match args.instruct.as_deref() {
+        Some(tags) => (None, Some(tags)),
+        None => (Some(cfg.voice.as_str()), None),
+    };
+    let req = SpeakRequest {
+        input: text,
+        model: &cfg.tts_model,
+        voice,
+        response_format: format,
+        speed: args.speed,
+        language: &cfg.lang,
+        instruct,
+        ref_text: args.ref_text.as_deref(),
+        duration: args.duration,
+        extra: parse_gen_params(&args.set)?,
+    };
+    client.speak(&req).await
+}
+
+fn report_synth(reply: &client::AudioReply) {
+    if let (Some(secs), Some(rtf)) = (&reply.audio_seconds, &reply.rtf) {
+        eprintln!("server synthesized {secs}s of audio (RTF {rtf})");
+    }
+}
+
+fn parse_gen_params(sets: &[String]) -> Result<serde_json::Map<String, serde_json::Value>> {
+    let mut map = serde_json::Map::new();
+    for entry in sets {
+        let (key, raw) = entry
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("--set expects key=value, got '{entry}'"))?;
+        if !GEN_PARAM_KEYS.contains(&key) {
+            bail!("unknown generation param '{key}'; valid keys: {}", GEN_PARAM_KEYS.join(", "));
+        }
+        map.insert(key.to_owned(), parse_scalar(raw));
+    }
+    Ok(map)
+}
+
+fn parse_scalar(raw: &str) -> serde_json::Value {
+    if let Ok(i) = raw.parse::<i64>() {
+        serde_json::Value::from(i)
+    } else if let Ok(f) = raw.parse::<f64>() {
+        serde_json::Value::from(f)
+    } else if let Ok(b) = raw.parse::<bool>() {
+        serde_json::Value::from(b)
+    } else {
+        serde_json::Value::from(raw)
+    }
+}
+
+async fn cmd_voices(cfg: &Config, action: VoicesAction) -> Result<()> {
+    let client = SpeechClient::new(cfg)?;
+    match action {
+        VoicesAction::List => {
+            let voices = client.list_voices().await?;
+            if voices.is_empty() {
+                println!("(no saved voices)");
+            }
+            for v in voices {
+                let tag = if v.has_ref_text { "  (has ref_text)" } else { "" };
+                println!("{}{tag}", v.name);
+            }
+        }
+        VoicesAction::Add(args) => {
+            let bytes = tokio::fs::read(&args.audio)
+                .await
+                .with_context(|| format!("reading {}", args.audio.display()))?;
+            let msg = client
+                .add_voice(&args.name, bytes, &file_name(&args.audio), args.ref_text.as_deref())
+                .await?;
+            println!("{}", non_empty(msg, &format!("added voice {}", args.name)));
+        }
+        VoicesAction::Rm { name } => {
+            let msg = client.delete_voice(&name).await?;
+            println!("{}", non_empty(msg, &format!("removed voice {name}")));
+        }
+    }
+    Ok(())
+}
+
+fn non_empty(text: String, fallback: &str) -> String {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        fallback.to_owned()
+    } else {
+        trimmed.to_owned()
+    }
 }
 
 async fn play_bytes(bytes: Vec<u8>, content_type: String, quiet: bool) -> Result<()> {
@@ -421,16 +582,20 @@ async fn speak_text(client: &SpeechClient, cfg: &Config, text: &str, quiet: bool
     let req = SpeakRequest {
         input: text,
         model: &cfg.tts_model,
-        voice: &cfg.voice,
+        voice: Some(&cfg.voice),
         response_format: &cfg.format,
         speed: 1.0,
         language: &cfg.lang,
+        instruct: None,
+        ref_text: None,
+        duration: None,
+        extra: serde_json::Map::new(),
     };
     let reply = client.speak(&req).await?;
     play_bytes(reply.bytes, reply.content_type, quiet).await
 }
 
-fn resolve_text(parts: Vec<String>) -> Result<String> {
+fn resolve_text(parts: &[String]) -> Result<String> {
     if !parts.is_empty() {
         return Ok(parts.join(" "));
     }

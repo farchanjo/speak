@@ -7,7 +7,7 @@
 use anyhow::{anyhow, bail, Context, Result};
 use reqwest::multipart::{Form, Part};
 use reqwest::Client;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use crate::config::Config;
 
@@ -18,28 +18,79 @@ pub struct SpeechClient {
     api_key: Option<String>,
 }
 
-/// Parameters for a TTS request.
+/// Parameters for a TTS request. Optional fields select the server's voice
+/// modes: `voice` => clone a saved voice; `instruct` => voice design; neither
+/// => auto. `extra` carries pass-through generation params.
 pub struct SpeakRequest<'a> {
     /// Text to synthesize.
     pub input: &'a str,
     /// Model id.
     pub model: &'a str,
-    /// Voice id.
-    pub voice: &'a str,
+    /// Saved voice name for cloning (omit for design/auto).
+    pub voice: Option<&'a str>,
     /// OpenAI `response_format` (mp3/opus/aac/flac/wav/pcm).
     pub response_format: &'a str,
     /// Playback speed multiplier.
     pub speed: f32,
     /// Language hint.
     pub language: &'a str,
+    /// Voice-design tags (comma-separated canonical tags).
+    pub instruct: Option<&'a str>,
+    /// Reference transcript for cloning.
+    pub ref_text: Option<&'a str>,
+    /// Target duration hint in seconds.
+    pub duration: Option<f32>,
+    /// Pass-through generation params (validated by the caller).
+    pub extra: Map<String, Value>,
 }
 
-/// Audio bytes plus the server-reported `Content-Type`.
+impl SpeakRequest<'_> {
+    fn to_body(&self) -> Value {
+        let mut body = Map::new();
+        body.insert("input".into(), json!(self.input));
+        body.insert("model".into(), json!(self.model));
+        body.insert("response_format".into(), json!(self.response_format));
+        body.insert("speed".into(), json!(self.speed));
+        body.insert("language".into(), json!(self.language));
+        insert_opt(&mut body, "voice", self.voice);
+        insert_opt(&mut body, "instruct", self.instruct);
+        insert_opt(&mut body, "ref_text", self.ref_text);
+        if let Some(d) = self.duration {
+            body.insert("duration".into(), json!(d));
+        }
+        for (k, v) in &self.extra {
+            body.insert(k.clone(), v.clone());
+        }
+        Value::Object(body)
+    }
+}
+
+fn insert_opt(body: &mut Map<String, Value>, key: &str, value: Option<&str>) {
+    if let Some(v) = value {
+        body.insert(key.to_owned(), json!(v));
+    }
+}
+
+/// Audio bytes plus server-reported metadata headers.
 pub struct AudioReply {
     /// Raw encoded audio bytes.
     pub bytes: Vec<u8>,
     /// Codec hint from the `Content-Type` header.
     pub content_type: String,
+    /// `X-RTF` (real-time factor), when present.
+    pub rtf: Option<String>,
+    /// `X-Audio-Seconds` (synthesised duration), when present.
+    pub audio_seconds: Option<String>,
+}
+
+/// A saved voice entry from `GET /voices`.
+#[derive(Debug, serde::Deserialize)]
+pub struct VoiceInfo {
+    /// Voice name.
+    pub name: String,
+    /// Whether a reference transcript is stored.
+    #[serde(default)]
+    pub has_ref_text: bool,
 }
 
 impl SpeechClient {
@@ -76,19 +127,51 @@ impl SpeechClient {
 
     /// `POST /v1/audio/speech` -> encoded audio bytes.
     pub async fn speak(&self, req: &SpeakRequest<'_>) -> Result<AudioReply> {
-        let body = json!({
-            "model": req.model,
-            "input": req.input,
-            "voice": req.voice,
-            "response_format": req.response_format,
-            "speed": req.speed,
-            "language": req.language,
-        });
         let resp = self
-            .auth(self.http.post(self.url("/v1/audio/speech")).json(&body))
+            .auth(self.http.post(self.url("/v1/audio/speech")).json(&req.to_body()))
             .send()
             .await?;
         audio_reply(resp).await
+    }
+
+    /// `GET /voices` -> saved voices for cloning.
+    pub async fn list_voices(&self) -> Result<Vec<VoiceInfo>> {
+        let resp = self.auth(self.http.get(self.url("/voices"))).send().await?;
+        let value: Value = ensure_ok(resp).await?.json().await?;
+        let voices = value.get("voices").cloned().unwrap_or(Value::Null);
+        serde_json::from_value(voices).context("parsing /voices response")
+    }
+
+    /// `POST /voices` (multipart) -> save a voice for cloning.
+    pub async fn add_voice(
+        &self,
+        name: &str,
+        audio: Vec<u8>,
+        filename: &str,
+        ref_text: Option<&str>,
+    ) -> Result<String> {
+        let part = Part::bytes(audio)
+            .file_name(filename.to_owned())
+            .mime_str("application/octet-stream")
+            .context("building voice audio part")?;
+        let mut form = Form::new().text("name", name.to_owned()).part("audio", part);
+        if let Some(text) = ref_text {
+            form = form.text("ref_text", text.to_owned());
+        }
+        let resp = self
+            .auth(self.http.post(self.url("/voices")).multipart(form))
+            .send()
+            .await?;
+        Ok(ensure_ok(resp).await?.text().await?)
+    }
+
+    /// `DELETE /voices/{name}` -> remove a saved voice.
+    pub async fn delete_voice(&self, name: &str) -> Result<String> {
+        let resp = self
+            .auth(self.http.delete(self.url(&format!("/voices/{name}"))))
+            .send()
+            .await?;
+        Ok(ensure_ok(resp).await?.text().await?)
     }
 
     /// `POST /tts` (native) -> WAV bytes.
@@ -177,17 +260,20 @@ fn audio_form(audio: Vec<u8>, filename: &str, model: &str, format: &str) -> Resu
 
 async fn audio_reply(resp: reqwest::Response) -> Result<AudioReply> {
     let resp = ensure_ok(resp).await?;
-    let content_type = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("application/octet-stream")
-        .to_owned();
+    let header = |name: &str| {
+        resp.headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(ToOwned::to_owned)
+    };
+    let content_type = header("content-type").unwrap_or_else(|| "application/octet-stream".to_owned());
+    let rtf = header("x-rtf");
+    let audio_seconds = header("x-audio-seconds");
     let bytes = resp.bytes().await?.to_vec();
     if bytes.is_empty() {
         bail!("server returned empty audio body");
     }
-    Ok(AudioReply { bytes, content_type })
+    Ok(AudioReply { bytes, content_type, rtf, audio_seconds })
 }
 
 async fn text_reply(resp: reqwest::Response, format: &str) -> Result<String> {

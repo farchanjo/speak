@@ -31,6 +31,12 @@ translation pipeline, is trivially configurable, and works fully over the networ
 1. **TTS** — `speak say|tts <text>` POSTs to `/v1/audio/speech` (OpenAI schema:
    `model,input,voice,response_format,speed,language`) OR native `/tts` when
    `--native`. Default `language=pt-BR`. Plays audio locally unless `-o FILE`/`--no-play`.
+   Voice modes: `--voice <saved>` clones a saved voice; `--instruct "<tags>"`
+   uses voice design (canonical tags, `--list-designs` lists them); neither =>
+   auto. `--ref-text`, `--duration`, and repeatable `--set key=value`
+   (validated generation params) pass through to the server.
+1a. **Voice management** — `speak voices add|list|rm` wraps the server's
+   `POST/GET/DELETE /voices` to register, list, and delete cloneable voices.
 2. **STT** — `speak transcribe <file>` POSTs multipart to `/v1/audio/transcriptions`.
    Supports `--format json|text|srt|vtt|verbose_json` and `--language`.
 3. **Translate** — `speak translate <file>` POSTs to `/v1/audio/translations` (to English).

@@ -40,6 +40,16 @@ speak say --no-play -o out.mp3 "hi"    # save without playing
 speak tts "olá" --speed 1.1            # `tts` is an alias of `say`
 echo "texto via stdin" | speak say     # stdin fallback
 
+# voice design (canonical tags) + pass-through generation params
+speak say --instruct "Female, British Accent" --set num_step=32 "hello"
+speak say --list-designs               # list valid voice-design tags
+
+# saved voices (cloning)
+speak voices list
+speak voices add myvoice --audio ref.wav --ref-text "reference transcript"
+speak voices rm myvoice
+speak say --voice myvoice "fala com a minha voz"   # clone mode
+
 speak transcribe audio.wav             # -> transcript text
 speak transcribe a.mp3 --format json   # extract .text from JSON
 speak translate foreign.mp3            # -> English text
