@@ -57,6 +57,9 @@ fn ensure_init() -> Result<()> {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
         let _ = ff::init();
+        // Keep libav quiet on stderr (errors only).
+        // SAFETY: setting the global log level is thread-safe in libavutil.
+        unsafe { ffi::av_log_set_level(ffi::AV_LOG_ERROR) };
     });
     Ok(())
 }
@@ -294,7 +297,13 @@ fn open_audio_decoder(
         .best(ff::media::Type::Audio)
         .ok_or_else(|| anyhow!("no audio stream in server response"))?;
     let index = stream.index();
-    let ctx = ff::codec::context::Context::from_parameters(stream.parameters())?;
+    let mut ctx = ff::codec::context::Context::from_parameters(stream.parameters())?;
+    // Use all available local CPU cores where the codec supports threading.
+    // (Audio codecs have no GPU/NVENC path; that hardware is server-side.)
+    ctx.set_threading(ff::codec::threading::Config {
+        kind: ff::codec::threading::Type::Frame,
+        count: 0,
+    });
     let decoder = ctx.decoder().audio().context("open audio decoder")?;
     Ok((index, decoder))
 }

@@ -30,10 +30,20 @@ STT, translation, and a realtime translation pipeline, with trivial configuratio
   `health`, `config`, `completions`.
 
 ### Realtime pipeline
-mic (native CoreAudio tap) -> libav resample to 16 kHz mono + in-memory WAV
-(silence-skipped via RMS gate) -> ASR(`--from`) -> target `--to`: `en` =>
-Whisper translate; else optional chat MT, else source transcript -> print +
-optional `--speak` TTS playback. Loops until Ctrl-C.
+mic (native CoreAudio tap, `--device`) -> libav resample to 16 kHz mono +
+in-memory WAV (silence-skipped via RMS gate) -> ASR(`--from`) -> target
+`--to` (`en` => Whisper translate; else optional chat MT, else source
+transcript) **or `--repeat`** (re-voice the source) -> print + optional
+`--speak` TTS in a chosen voice (`--instruct` voice design or global
+`--voice` clone) played out the speaker. Loops until Ctrl-C.
+
+### Performance
+- One pooled `reqwest::Client` per process is reused across every request
+  (notably each realtime iteration) — a persistent keep-alive connection
+  (tuned pool size, TCP keep-alive, idle timeout) so calls ride a warm socket.
+- libav decoding uses all local CPU cores where the codec supports threading
+  (frame threading, auto count). Audio codecs have no GPU/NVENC path; that
+  hardware is server-side (the RTX 4090 runs TTS/ASR inference).
 
 ## Companion Artifacts
 

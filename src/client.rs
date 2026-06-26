@@ -4,6 +4,8 @@
 //! `/v1/audio/transcriptions`, `/v1/audio/translations`, and an optional
 //! chat-completions endpoint for arbitrary-target translation.
 
+use std::time::Duration;
+
 use anyhow::{anyhow, bail, Context, Result};
 use reqwest::multipart::{Form, Part};
 use reqwest::Client;
@@ -95,9 +97,19 @@ pub struct VoiceInfo {
 
 impl SpeechClient {
     /// Build a client from resolved configuration.
+    ///
+    /// The pool is tuned for a persistent keep-alive connection that is reused
+    /// across calls (notably every `realtime` iteration), so each request rides
+    /// a warm connection instead of re-handshaking.
     pub fn new(cfg: &Config) -> Result<Self> {
         let http = Client::builder()
             .user_agent(concat!("speak/", env!("CARGO_PKG_VERSION")))
+            .pool_max_idle_per_host(8)
+            .pool_idle_timeout(Duration::from_secs(90))
+            .tcp_keepalive(Duration::from_secs(60))
+            .tcp_nodelay(true)
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(300))
             .build()
             .context("building HTTP client")?;
         Ok(Self {

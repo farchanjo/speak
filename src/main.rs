@@ -167,9 +167,15 @@ struct RealtimeArgs {
     /// Target language (`en` uses Whisper translate directly).
     #[arg(long, default_value = "en", value_name = "LANG")]
     to: String,
-    /// Also synthesize and play the translation.
+    /// Re-voice the source transcript without translating it.
+    #[arg(long)]
+    repeat: bool,
+    /// Synthesize and play the result through the speaker.
     #[arg(long)]
     speak: bool,
+    /// Voice design tags for the spoken output (e.g. "Female, British Accent").
+    #[arg(long, value_name = "TAGS")]
+    instruct: Option<String>,
     /// Chunk length in seconds.
     #[arg(long, default_value_t = 5, value_name = "SECS")]
     chunk: u64,
@@ -553,9 +559,9 @@ async fn realtime_iter(
     if text.is_empty() {
         return Ok(());
     }
-    println!("[{}] {text}", args.to);
+    println!("[{}] {text}", spoken_lang(cfg, args));
     if args.speak {
-        speak_text(client, cfg, &text, quiet).await?;
+        speak_text(client, cfg, args, &text, quiet).await?;
     }
     Ok(())
 }
@@ -566,6 +572,11 @@ async fn translate_chunk(
     args: &RealtimeArgs,
     wav: Vec<u8>,
 ) -> Result<String> {
+    if args.repeat {
+        return client
+            .transcribe(wav, "chunk.wav", &cfg.asr_model, args.from.as_deref(), "json")
+            .await;
+    }
     if args.to.eq_ignore_ascii_case("en") {
         return client.translate(wav, "chunk.wav", &cfg.asr_model, "json").await;
     }
@@ -578,15 +589,34 @@ async fn translate_chunk(
     }
 }
 
-async fn speak_text(client: &SpeechClient, cfg: &Config, text: &str, quiet: bool) -> Result<()> {
+/// Language the realtime output is spoken in (target, or source when repeating).
+fn spoken_lang<'a>(cfg: &'a Config, args: &'a RealtimeArgs) -> &'a str {
+    if args.repeat {
+        args.from.as_deref().unwrap_or(cfg.lang.as_str())
+    } else {
+        args.to.as_str()
+    }
+}
+
+async fn speak_text(
+    client: &SpeechClient,
+    cfg: &Config,
+    args: &RealtimeArgs,
+    text: &str,
+    quiet: bool,
+) -> Result<()> {
+    let (voice, instruct) = match args.instruct.as_deref() {
+        Some(tags) => (None, Some(tags)),
+        None => (Some(cfg.voice.as_str()), None),
+    };
     let req = SpeakRequest {
         input: text,
         model: &cfg.tts_model,
-        voice: Some(&cfg.voice),
+        voice,
         response_format: &cfg.format,
         speed: 1.0,
-        language: &cfg.lang,
-        instruct: None,
+        language: spoken_lang(cfg, args),
+        instruct,
         ref_text: None,
         duration: None,
         extra: serde_json::Map::new(),
