@@ -27,16 +27,21 @@ package schemas
 	clone?:  #VoiceClone
 }
 
-// #SpeechSpec is the value object describing one synthesis request (FR-1..FR-4);
-// it is value-equal (no identity). Generation-parameter and server tuning knobs
-// are catalogued in ADR-0006.
-// DDD role: ValueObject
+// #SpeechSpec is the aggregate describing one synthesis request
+// (FR-1..FR-4 / tasks T014): input + voice mode + format + language + speed +
+// gen-params, plus the `model`, `native` endpoint toggle, and optional
+// `--duration`. It is value-equal (no identity). #GenParams lives in config.cue.
+// DDD role: Aggregate
 #SpeechSpec: {
-	input:    #SpeechText
-	language: #Language
-	format:   #SampleFormat
-	speed:    #Speed | *1.0
-	voice:    #VoiceMode
+	input:      #SpeechText
+	language:   #Language
+	format:     #SampleFormat
+	speed:      #Speed | *1.0
+	voice:      #VoiceMode
+	model:      string & !="" | *"tts-1"
+	native:     bool | *false
+	duration?:  number & >0
+	genParams?: #GenParams
 }
 
 // #RealtimeMode is the realtime pipeline strategy (FR-8 / ADR-0004).
