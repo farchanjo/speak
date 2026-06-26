@@ -54,7 +54,7 @@ Chosen option: "Option A".
   `openai` adapter over `/v1/audio/translations`, which translates audio to
   English via Whisper; and (b) a chat-MT strategy for an arbitrary `--to`
   target, implemented by a separate `chatmt` adapter that POSTs to the
-  non-OpenAI `[general].translate_url` endpoint with `[general].translate_model`
+  non-OpenAI `[http].translate_url` endpoint with `[http].translate_model`
   using the same warm `reqwest` pool. The composition root selects the strategy:
   English target or absent `translate_url` -> Whisper translate; non-English
   target with `translate_url` set -> chat-MT; non-English target without
@@ -78,6 +78,17 @@ Chosen option: "Option A".
   default binary always carries it and decides at runtime.
 - A single `async-openai` client (warm keep-alive, tuned reqwest pool) is built
   once in the composition root and shared by every adapter call.
+- Every network call — typed endpoint, `_byot` speech request, chat-MT request,
+  daemon forward, and the realtime SSE stream — is wrapped by an injected
+  `RetryPolicy` (the resilience Strategy of ADR-0003): a configurable
+  exponential backoff with jitter, bounded by `max_retries`, growing from
+  `backoff_initial_ms` by `multiplier` up to `backoff_max_ms`, and retrying only
+  failures in the `retry_on` set (`connect + timeout + 5xx + 429` by default).
+  The policy is a domain value object built from the `[retry]` config section
+  (ADR-0006) and is unit-testable in isolation (attempt count, delay growth,
+  jitter bounds, `retry_on` classification). The realtime SSE consumer treats a
+  dropped stream as a retryable failure and **reconnects** under the same bounded
+  policy rather than aborting the live session.
 
 ### Consequences
 
@@ -85,6 +96,9 @@ Chosen option: "Option A".
   knobs are expressible without forking; the realtime consumer is isolated and
   optional.
 - Good: the OpenAI base URL points at any compatible server via `--host`.
+- Good: transient failures (connection resets, timeouts, 5xx, 429) are absorbed
+  by the configurable `RetryPolicy` instead of surfacing as hard errors, and the
+  realtime stream self-heals via bounded reconnect.
 - Bad: `_byot` payloads are validated by the server, not the compiler, so the
   request Builder must guard field names and the voice-design tag vocabulary
   in the domain layer before sending.

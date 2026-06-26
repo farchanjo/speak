@@ -67,19 +67,21 @@ flowchart TD
 
 - `src/domain/` — pure, zero I/O: `Voice`, `VoiceDesign` (the 23-tag canonical
   Value Object), `VoiceClone`, `PcmBuffer`, `SampleFormat`, `SpeechSpec`,
-  `GenParams`, `Language`, and domain `errors`. No `tokio`, `reqwest`,
-  `objc2`, or `ffmpeg` types appear here.
+  `GenParams`, `Language`, `RetryPolicy` (the exponential-backoff + jitter
+  resilience value object, with its `RetryOn` classification), and domain
+  `errors`. No `tokio`, `reqwest`, `objc2`, or `ffmpeg` types appear here.
 - `src/ports/` — driven-port traits: `Synthesizer`, `Transcriber`,
   `Translator`, `AudioSink`, `AudioSource`, `AudioDecoder`, `AudioEncoder`
   (WAV/FLAC record output), `ConfigProvider`, `VoiceRepository`,
-  `RealtimeStream`.
+  `RealtimeStream`, and `RetryPolicy` (the resilience Strategy port that wraps
+  every network call; ADR-0004).
 - `src/application/` — use cases (`say`, `transcribe`, `translate`, `record`,
   `voices`, `realtime`) that orchestrate ports; no framework type leaks across
   the application boundary.
 - `src/adapters/` — `openai` (async-openai + `_byot`), `coreaudio`
   (`AVAudioEngine` output + mixer + capture + device enumeration + multi-output),
   `libav` (ffmpeg-the-third decode/resample + WAV/FLAC record encode), `chatmt`
-  (arbitrary-target `Translator` Strategy over `[general].translate_url`),
+  (arbitrary-target `Translator` Strategy over `[http].translate_url`),
   `config` (TOML + env + default), `daemon` (Unix socket + SSE forward), `sse`
   (realtime stream parser).
 - `src/cli/` — driving adapter (clap) that maps arguments to use-case inputs and
@@ -90,7 +92,9 @@ flowchart TD
 
 - Adapter — every `adapters/*` type adapts a framework to a port trait.
 - Strategy — translation modes (`translate` / `no-translate` passthrough /
-  `echo`) and the resampler selection are interchangeable strategies.
+  `echo`), the resampler selection, and the `RetryPolicy` resilience port
+  (exponential backoff + jitter, configured from `[retry]` and injected at the
+  composition root) are interchangeable strategies.
 - Factory — `main.rs` composition root constructs and wires the object graph.
 - Builder — speech request assembly and config assembly use fluent builders.
 - Facade — an application facade exposes one cohesive surface to both the CLI

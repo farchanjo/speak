@@ -73,8 +73,30 @@ floor. The file lives at `~/.speak/config.toml`, migrating from
   / `--no-translate` flag, default from `SPEAK_RT_TRANSLATE`), while `speak`
   toggles whether the produced text is spoken back through TTS.
 - `[daemon]` — `socket` (`~/.speak/speak.sock`), `idle_timeout`, `autostart`.
-- `[general]` — `quiet`, `json`, `color`, `temp_dir`, `log`, `config_path`;
-  plus `translate_url`, `translate_model`, retry/backoff, `save_dir`.
+- `[http]` — the non-OpenAI chat-MT endpoint and save directory:
+  `translate_url` (`SPEAK_TRANSLATE_URL`), `translate_model`
+  (`SPEAK_TRANSLATE_MODEL`), `save_dir` (`SPEAK_SAVE_DIR`). `translate_url`
+  enables an arbitrary `--to` target in the realtime pipeline (FR-8); without
+  it the client degrades to the source transcript.
+- `[retry]` — the configurable exponential-backoff + jitter resilience policy
+  (FR-17, ADR-0004) wrapping **every** network call: `max_retries`
+  (`SPEAK_RETRY_MAX`, default `3`), `backoff_initial_ms`
+  (`SPEAK_RETRY_BACKOFF_MS`, `200`), `backoff_max_ms`
+  (`SPEAK_RETRY_BACKOFF_MAX_MS`, `5000`), `multiplier`
+  (`SPEAK_RETRY_MULTIPLIER`, `2.0`), `jitter` (`SPEAK_RETRY_JITTER`, `true`),
+  and `retry_on` (`SPEAK_RETRY_ON`, default `connect + timeout + 5xx + 429`).
+  This section is the TOML projection of the `RetryPolicy` domain value object.
+- `[general]` — `quiet`, `json`, `color`, `temp_dir`, `log`, `config_path`.
+
+### Universal env-overridability (no magic numbers)
+
+Every tunable in the catalog above — timeouts, pool sizes, chunk sizes, buffer
+frames, silence thresholds, sample rates, ffmpeg knobs, and the entire `[retry]`
+policy — is env-overridable via a `SPEAK_*` variable with a code default, under
+the same `flag > env > toml > default` precedence (FR-18). There are no
+hardcoded magic numbers for tunables anywhere in the implementation; the Validate
+phase asserts this (grep/review) and `config show` lists every value with its
+origin, so any effective value is traceable to its source.
 
 ### Consequences
 
@@ -85,5 +107,7 @@ floor. The file lives at `~/.speak/config.toml`, migrating from
   `config show`; the cross-consistency validator and CUE schema must mirror it.
   The mirror lives in `docs/arch/schemas/config.cue` (`#Config` and the
   `#Server`/`#Tts`/`#Asr`/`#AudioOutput`/`#AudioInput`/`#Ffmpeg`/`#Realtime`/
-  `#Daemon`/`#General` section types, plus the `#GenParams` value object for
-  `[tts.gen]`); changes to this catalog must update that file in the same change.
+  `#Daemon`/`#Http`/`#Retry`/`#General` section types, plus the `#GenParams`
+  value object for `[tts.gen]` and the `#RetryPolicy`/`#RetryOn` value objects
+  for `[retry]`); changes to this catalog must update that file in the same
+  change.
