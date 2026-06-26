@@ -93,8 +93,10 @@ The codebase follows Hexagonal architecture with DDD and named GoF patterns
    Output voice is `--instruct` (design) or `--voice` (clone) or default.
    `--from`/`--to` set languages. When the server's SSE endpoint
    `POST /v1/realtime/translate` is available it is consumed frame-by-frame;
-   otherwise the client falls back to the chunked ASR->MT->TTS loop. Loops until
-   Ctrl-C.
+   otherwise the client falls back to the chunked ASR->MT->TTS loop. The SSE
+   path is selected by a **runtime** capability probe (not a compile-time
+   feature), so one prebuilt binary works against servers with or without the
+   endpoint (ADR-0004). Loops until Ctrl-C.
 9. **Record** — `speak record` captures the microphone to a file
    (`--output`, `--device`, `--format wav|flac`, `--duration`, `--sample-rate`,
    `--channels`).
@@ -108,13 +110,18 @@ The codebase follows Hexagonal architecture with DDD and named GoF patterns
     holds one warm pooled async-openai client and listens on a Unix socket
     (`[daemon].socket`, default `~/.speak/speak.sock`); CLI commands forward to
     it (length-prefixed framing, SSE frames streamed through) with transparent
-    one-shot fallback when no daemon is present (ADR-0005).
+    one-shot fallback when no daemon is present (ADR-0005). `[daemon].autostart`
+    controls that fallback: when `true`, a one-shot invocation that finds no
+    daemon auto-launches the daemon binary (detached), waits for the socket, and
+    forwards to it; when `false` (default) it just runs the one-shot client.
 13. **Config precedence and catalog** — `CLI flag > ENV (SPEAK_*) >
     ~/.speak/config.toml > code default` (ADR-0006). The file migrates from
     `~/.config/speak` if present. `config init` writes a fully-commented TOML;
     `config show` prints every effective value AND its origin
     (`flag|env|toml|default`); `config path` prints the resolved path. The full
-    catalog of sections/keys is defined in ADR-0006 and the CUE schema.
+    catalog of sections/keys is defined in ADR-0006 and the CUE schema, and
+    includes a `[retry]` resilience section (FR-17) and an `[http]` section
+    (`translate_url`, `translate_model`, `save_dir`).
 14. **Health / models** — `speak health` checks `GET /health`; the client also
     reads `GET /v1/models`. `speak check` reports OS/arch, CPU cores, libav
     hwdevice types, AudioToolbox decoders, and the active acceleration policy
@@ -124,6 +131,25 @@ The codebase follows Hexagonal architecture with DDD and named GoF patterns
 16. **Compatibility & output** — works against any OpenAI-audio-compatible server
     via `--host`; honours `--quiet` and `--json` where applicable; returns a
     non-zero exit on HTTP/transport error.
+17. **Resilience (retry/backoff)** — every network call (typed OpenAI endpoint,
+    `_byot` speech request, chat-MT request, daemon forward, and the realtime
+    SSE stream) is routed through a single configurable retry policy: bounded
+    exponential backoff with jitter, controlled by the `[retry]` catalog
+    (`max_retries`=`SPEAK_RETRY_MAX` default 3, `backoff_initial_ms`=
+    `SPEAK_RETRY_BACKOFF_MS` 200, `backoff_max_ms`=`SPEAK_RETRY_BACKOFF_MAX_MS`
+    5000, `multiplier`=`SPEAK_RETRY_MULTIPLIER` 2.0, `jitter`=
+    `SPEAK_RETRY_JITTER` true, `retry_on`=`SPEAK_RETRY_ON`, default
+    `connect + timeout + 5xx + 429`). Only failures in the `retry_on` set are
+    retried; others fail fast. The realtime SSE stream reconnects under the same
+    bounded policy. The policy is a domain value object behind a `RetryPolicy`
+    port (Strategy), injected at the composition root and unit-tested (attempt
+    count, delay growth, jitter bounds, `retry_on` classification) — ADR-0004.
+18. **Universal env-overridability (no magic numbers)** — every tunable
+    (timeouts, pool sizes, chunk sizes, buffer frames, silence thresholds,
+    sample rates, ffmpeg knobs, and the full retry policy) is overridable via a
+    `SPEAK_*` environment variable with a code default under the FR-13
+    precedence, appears in `config show` with its origin, and is recorded in the
+    ADR-0006 catalog and the CUE schema. No tunable is a hardcoded literal.
 
 ## Non-Functional Requirements
 
@@ -155,6 +181,15 @@ The codebase follows Hexagonal architecture with DDD and named GoF patterns
   the box).
 - **Latency** — a `say` round trip should be dominated by server inference, not
   the client; the daemon and warm pool remove repeated connection setup.
+- **Resilience** (FR-17, ADR-0004) — a single `RetryPolicy` Strategy (domain
+  value object + port) wraps every network call with bounded exponential backoff
+  + jitter; it is configured from `[retry]`, injected at the composition root,
+  and unit-tested independently of any transport. Realtime SSE failures trigger
+  a bounded reconnect rather than aborting the session.
+- **Zero magic numbers** (FR-18) — every tunable is an env-overridable
+  `SPEAK_*` knob with a code default; the Validate phase asserts (grep/review)
+  that no tunable is a hardcoded literal and that the retry policy is env-driven
+  and tested.
 
 ## Acceptance Scenarios
 
@@ -190,6 +225,15 @@ Then it uses the default host `http://solaris:8800` and succeeds.
 Given a value set in the TOML and overridden by an env var
 When I run `speak config show`
 Then each effective value is printed with its origin (`flag|env|toml|default`).
+
+Given a server that returns a transient 5xx then succeeds
+When I run `speak say "oi"`
+Then the client retries with exponential backoff + jitter (per `[retry]`) and
+the request ultimately succeeds with exit code 0.
+
+Given a server that returns a non-retryable 4xx
+When I run `speak say "oi"`
+Then the client does not retry and exits non-zero with the server error.
 
 ## Out of Scope
 

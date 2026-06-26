@@ -30,16 +30,23 @@ layout); `[ ]` = pending for the hexagonal rebuild.
 - [ ] T013 `[domain]` `GenParams` value object (num_step/steps alias,
   guidance_scale, t_shift, layer_penalty_factor, position/class_temperature,
   denoise, preprocess_prompt, postprocess_output, audio_chunk_duration/
-  threshold) with validated key set.
+  threshold) with validated key set. The only canonical step key is `num_step`
+  (CLI alias `steps`); reject `num_steps` and any other unknown key.
 - [ ] T014 `[domain]` `SpeechSpec` aggregate (input + voice mode + format +
   language + speed + gen-params) and domain `errors`.
+- [ ] T015 `[domain]` `RetryPolicy` value object (max_retries, backoff_initial_ms,
+  backoff_max_ms, multiplier, jitter, `retry_on` classification via `RetryOn`):
+  pure backoff/jitter computation, no I/O (FR-17 / ADR-0004). Unit-test attempt
+  count, geometric delay growth, jitter bounds, and `retry_on` classification.
 
 ## Ports (traits)
 
 - [ ] T020 `[ports]` `Synthesizer`, `Transcriber`, `Translator`.
 - [ ] T021 `[ports]` `AudioSink` (single + multi-device), `AudioSource`,
-  `AudioDecoder`.
+  `AudioDecoder`, `AudioEncoder` (WAV/FLAC record output).
 - [ ] T022 `[ports]` `ConfigProvider`, `VoiceRepository`, `RealtimeStream`.
+- [ ] T023 `[ports]` `RetryPolicy` port (the resilience Strategy the composition
+  root injects around every network call) (FR-17 / ADR-0004).
 
 ## Driven adapters
 
@@ -67,7 +74,28 @@ layout); `[ ]` = pending for the hexagonal rebuild.
 - [x] T037 `[adapter:config]` layered config (flags > env > `~/.speak/config.toml`
   > default), migration from `~/.config/speak`, `config init` commented template,
   `config show` value+origin, `config path`; implements `ConfigProvider`
-  (ADR-0006).
+  (ADR-0006). Load the `[retry]` section (mapped to `domain::RetryPolicy`) and
+  the `[http]` section (`translate_url`/`translate_model`/`save_dir`), each with
+  its `SPEAK_*` env override and code default — no hardcoded tunables (FR-18).
+  During this rebuild, rename the `[tts.gen]` `gen` field to the
+  `domain::GenParams` value object and bump `edition = "2024"`/`resolver = "3"`
+  (the deferral owner, ADR-0008): run `cargo fix --edition`, verify MSRV 1.85
+  and a green build/clippy.
+- [ ] T038 `[adapter:libav]` record-output **encode**: hand-muxed WAV (no
+  encoder) and FLAC via the libavcodec FLAC encoder through an in-memory AVIO
+  **write** callback; implements `AudioEncoder` (`record --format wav|flac`,
+  FR-9 / ADR-0001).
+- [ ] T039 `[adapter:chatmt]` arbitrary-target machine translation: implement the
+  `Translator` **Strategy** against `[http].translate_url` /
+  `[http].translate_model` (non-OpenAI chat-MT endpoint), reusing the warm pool;
+  selected when `--to` is non-English and `translate_url` is set, else degrade
+  to the source transcript with a clear notice (FR-8 / ADR-0004).
+- [ ] T046 `[adapter:retry]` transport-agnostic retry **decorator** implementing
+  the `RetryPolicy` port over `domain::RetryPolicy`: bounded exponential backoff
+  + jitter, `retry_on` classification (connect/timeout/5xx/429), wrapping every
+  driven network adapter (`openai`, `chatmt`, `daemon` forward) and the `sse`
+  reconnect; configured from `[retry]`, injected at the composition root
+  (FR-17 / ADR-0004).
 
 ## Application (use cases)
 
@@ -86,18 +114,34 @@ layout); `[ ]` = pending for the hexagonal rebuild.
   `realtime`, `record`, `voices`, `devices`, `daemon`, `check`, `health`,
   `config`, `completions`; global flags with `env=`; `ValueEnum` choices.
 - [ ] T051 `[cli]` wire each subcommand to its use case (no business logic in
-  the CLI); `--output-device` repeatable on `say`/`realtime`; `--list-designs`.
+  the CLI); `--output-device` repeatable on `say`/`realtime`; `say --voice`
+  (per-call clone, distinct from the TTS `--voice`/`alloy`), `realtime
+  --instruct/--voice` (output voice), `realtime --translate/--no-translate/
+  --echo` modes; `--list-designs`.
+- [ ] T055 `[cli]` wire `speak record` (`--output`, `--device`, `--format
+  wav|flac`, `--duration`, `--sample-rate`, `--channels`) to the `record` use
+  case (FR-9).
+- [ ] T056 `[cli]` wire `speak devices [--json]` to the device-enumeration
+  adapter (T035) and print input/output devices + `AudioDeviceID`s (FR-10).
 - [x] T052 `[adapter:daemon]` Unix-socket listener at `~/.speak/speak.sock`,
   length-prefixed framing, SSE pass-through, one-shot fallback (ADR-0005).
 - [ ] T053 `[adapter:daemon]` route framed requests through the shared
   application Facade (same use cases as the CLI).
 - [ ] T054 `[root]` `main.rs` composition root (**Factory**/DI): build the one
-  warm async-openai client, wire adapters into use cases, select CLI vs daemon.
+  warm async-openai client, construct the `RetryPolicy` from `[retry]` and wrap
+  every network adapter with the retry decorator (T046), wire adapters into use
+  cases, select CLI vs daemon.
 
 ## Verification
 
 - [ ] T060 `[build]` `cargo build --release` GREEN; `cargo clippy --all-targets
   -- -D warnings`; `cargo fmt --all -- --check`; `cargo test`/`nextest`.
+- [ ] T063 `[build]` Resilience + zero-magic-numbers gate (FR-17 / FR-18):
+  unit-test the `RetryPolicy` (attempt count, delay growth, jitter bounds,
+  `retry_on` classification) and assert via grep/review that no tunable
+  (timeouts, pool sizes, chunk/buffer sizes, thresholds, sample rates, ffmpeg
+  knobs, retry params) is a hardcoded literal — every one resolves through the
+  `SPEAK_*` env override + code default and appears in `config show`.
 - [ ] T061 `[docs]` smoke-test `health`, `say`, `transcribe`/`translate`,
   `realtime`, `devices`, `daemon` against solaris; update README + quickstart.
 - [ ] T062 `[docs]` `speckit validate` + `speckit analyze` clean; `speckit verify`

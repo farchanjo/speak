@@ -12,7 +12,11 @@ DDD + named GoF patterns (ADR-0003).
 
 ## Technical Approach
 
-- Rust 2021 edition, MSRV 1.85; async via **tokio**.
+- Rust 2021 edition, MSRV 1.85; async via **tokio**. Staying on edition 2021
+  (rather than the toolchain-standard 2024) is a recorded, time-bounded
+  deferral — the `[tts.gen]` `gen` identifier collides with the 2024 reserved
+  keyword; the migration is owned by the `adapters/config` rebuild (T037). See
+  ADR-0008.
 - HTTP via **async-openai** 0.41.x (`OpenAIConfig::with_api_base(host)
   .with_api_key(key)`): typed requests for standard endpoints, `_byot` methods
   for the extended speech request (voice-design `instruct`, `voice=clone`,
@@ -26,6 +30,13 @@ DDD + named GoF patterns (ADR-0003).
   codecs + resampling via a custom in-memory AVIO callback; native macOS
   CoreAudio (`objc2-avf-audio` `AVAudioEngine`) for output, mixing, capture,
   device enumeration, and multi-output fan-out (ADR-0007).
+- **Resilience** (ADR-0004): every network call rides a single configurable
+  `RetryPolicy` Strategy (domain value object + port) — bounded exponential
+  backoff + jitter from the `[retry]` catalog — injected at the composition
+  root; the realtime SSE stream reconnects under the same bounded policy.
+- **Zero magic numbers**: every tunable is a `SPEAK_*`-overridable knob with a
+  code default under `flag > env > toml > default`; the Validate phase greps
+  for hardcoded tunables and asserts the retry policy is env-driven + tested.
 
 ## Hexagonal module plan
 
@@ -74,11 +85,13 @@ flowchart TD
 
 - **domain** (`src/domain/`) — `Voice`, `VoiceDesign` (canonical 23-tag Value
   Object with validation), `VoiceClone`, `PcmBuffer`, `SampleFormat`,
-  `SpeechSpec`, `GenParams`, `Language`, domain `errors`. Pure; no `tokio`,
-  `reqwest`, `objc2`, or `ffmpeg` types.
+  `SpeechSpec`, `GenParams`, `Language`, `RetryPolicy` (exponential-backoff +
+  jitter resilience VO with its `RetryOn` classification), domain `errors`.
+  Pure; no `tokio`, `reqwest`, `objc2`, or `ffmpeg` types.
 - **ports** (`src/ports/`) — `Synthesizer`, `Transcriber`, `Translator`,
-  `AudioSink`, `AudioSource`, `AudioDecoder`, `ConfigProvider`,
-  `VoiceRepository`, `RealtimeStream` traits.
+  `AudioSink`, `AudioSource`, `AudioDecoder`, `AudioEncoder` (WAV/FLAC record
+  output), `ConfigProvider`, `VoiceRepository`, `RealtimeStream`, and
+  `RetryPolicy` (resilience Strategy wrapping every network call) traits.
 - **application** (`src/application/`) — use cases `say`, `transcribe`,
   `translate`, `record`, `voices`, `realtime`; orchestrate ports; no framework
   types leak across the boundary. An application **Facade** exposes one surface
@@ -90,7 +103,20 @@ flowchart TD
     device enumeration + multi-output; implements `AudioSink`, `AudioSource`.
   - `libav` — custom in-memory AVIO decode -> PCM, libswresample resample (48 kHz
     stereo f32 for playback, 16 kHz mono s16 for ASR), in-memory WAV mux, RMS
-    silence gate; implements `AudioDecoder`.
+    silence gate; plus the **encode** direction for `record` output — hand-muxed
+    WAV (no encoder) and FLAC via the libavcodec FLAC encoder through an
+    in-memory AVIO **write** callback (`record --format wav|flac`, FR-9). The
+    port surface is an `AudioDecoder` for the decode/resample side and an
+    `AudioEncoder` for the WAV/FLAC encode side (ADR-0001).
+  - `chatmt` — chat machine-translation adapter implementing the `Translator`
+    port's arbitrary-target **Strategy** against the non-OpenAI
+    `[http].translate_url` endpoint (`[http].translate_model`), reusing the warm
+    pool; selected only when `--to` is non-English and `translate_url` is set
+    (ADR-0004). The default English path stays on the `openai` adapter.
+  - `retry` — a transport-agnostic decorator implementing the `RetryPolicy`
+    port (bounded exponential backoff + jitter from `[retry]`, `retry_on`
+    classification); it wraps every driven network adapter (`openai`, `chatmt`,
+    `daemon` forward, `sse` reconnect) at the composition root (ADR-0004).
   - `config` — TOML + env + default precedence; implements `ConfigProvider`.
   - `daemon` — Unix-socket driving adapter (length-prefixed framing, SSE
     pass-through) reusing the same use cases (ADR-0005).
@@ -120,8 +146,9 @@ frames drive the loop directly; otherwise the chunked path runs. Loops to Ctrl-C
 ## GoF patterns (named for `gof-conformance`)
 
 - **Adapter** — every `adapters/*` type adapts a framework to a port.
-- **Strategy** — translate modes (`translate`/`no-translate`/`echo`) and
-  resampler selection.
+- **Strategy** — translate modes (`translate`/`no-translate`/`echo`), resampler
+  selection, and the `RetryPolicy` resilience port (interchangeable
+  backoff/jitter strategies, injected at the root).
 - **Factory** — `main.rs` composition root.
 - **Builder** — fluent speech-request and config assembly.
 - **Facade** — application facade shared by CLI and daemon.
@@ -138,6 +165,11 @@ frames drive the loop directly; otherwise the chunked path runs. Loops to Ctrl-C
 
 ## Companion Artifacts
 
-- `docs/arch/schemas/*.cue` — domain + config value-object model.
+- `docs/arch/schemas/*.cue` — domain value objects (`SpeechSpec` aggregate,
+  `VoiceMode`/`Design`/`Clone`, `Voice`, `GenParams`, `PcmBuffer`, `Language`,
+  `SampleFormat`, `RealtimeMode`, `ConfigOrigin`, `RetryPolicy`/`RetryOn`) and
+  the full `#Config` catalog mirroring ADR-0006 (`config.cue`, including the
+  `#Retry` and `#Http` sections); `RealtimeFrame` SSE DTO included.
 - `docs/arch/specs/features/*.feature` — executable acceptance scenarios.
-- `docs/arch/adr/0001..0007` — the binding decision record.
+- `docs/arch/adr/0001..0008` — the binding decision record (ADR-0008 records
+  the edition-2021 deferral).
