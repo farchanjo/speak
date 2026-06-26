@@ -27,6 +27,18 @@ package schemas
 	tags: [...#VoiceDesignTag] & [_, ...]
 }
 
+// #StandardVoice is a built-in, server-provided standard voice referenced by a
+// well-known name (e.g. the `[tts].voice` default `alloy`), NOT a saved clone.
+// It disambiguates the `--voice` collision: `[tts].voice` defaults to a standard
+// OpenAI-style voice name, while a `--voice <saved-name>` whose name matches a
+// registered clone resolves to #VoiceClone. Resolution order (FR-2): if the name
+// matches a saved voice it is a clone; otherwise it is passed through as a
+// standard voice name for the server to resolve.
+// DDD role: ValueObject
+#StandardVoice: {
+	name: #VoiceName
+}
+
 // #VoiceClone references a saved voice, optionally with reference text.
 // DDD role: ValueObject
 #VoiceClone: {

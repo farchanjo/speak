@@ -54,8 +54,10 @@ floor. The file lives at `~/.speak/config.toml`, migrating from
   `class_temperature`, `denoise`, `preprocess_prompt`, `postprocess_output`,
   `audio_chunk_duration`, `audio_chunk_threshold`.
 - `[asr]` — `model` (`whisper-1`), `language` (`auto`), `format` (`text`).
-- `[audio.output]` — `device` (a device **name**, resolved to an
-  `AudioDeviceID`), `volume` (drives `mainMixerNode.outputVolume`), `rate`,
+- `[audio.output]` — `device` (a device **name**, or a **list** of names for a
+  default multi-output fan-out set, each resolved to an `AudioDeviceID`; the
+  repeatable `--output-device` flag overrides this per call — FR-11 / ADR-0007),
+  `volume` (drives `mainMixerNode.outputVolume`), `rate`,
   `sample_rate`, `channels`, `buffer_frames`, `play`. `rate` is the playback
   device's nominal hardware sample rate requested from CoreAudio (the output
   node rate); `sample_rate` is the PCM sample rate the libav resampler targets
@@ -84,8 +86,11 @@ floor. The file lives at `~/.speak/config.toml`, migrating from
   (`SPEAK_RETRY_BACKOFF_MS`, `200`), `backoff_max_ms`
   (`SPEAK_RETRY_BACKOFF_MAX_MS`, `5000`), `multiplier`
   (`SPEAK_RETRY_MULTIPLIER`, `2.0`), `jitter` (`SPEAK_RETRY_JITTER`, `true`),
-  and `retry_on` (`SPEAK_RETRY_ON`, default `connect + timeout + 5xx + 429`).
-  This section is the TOML projection of the `RetryPolicy` domain value object.
+  `jitter_seed` (`SPEAK_RETRY_JITTER_SEED`, optional — fixes the jitter RNG for
+  reproducible runs/tests; unset uses an OS RNG), and `retry_on`
+  (`SPEAK_RETRY_ON`, default `connect + timeout + 5xx + 429`). This section is
+  the TOML projection of the `RetryPolicy` domain value object; randomness is
+  injected (not ambient) so the value object stays pure (ADR-0004).
 - `[general]` — `quiet`, `json`, `color`, `temp_dir`, `log`, `config_path`.
 
 ### Universal env-overridability (no magic numbers)

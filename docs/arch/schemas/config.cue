@@ -127,8 +127,14 @@ package schemas
 // CoreAudio (the output node rate); `sample_rate` is the PCM sample rate the
 // libav resampler targets before feeding the mixer. They differ when the
 // device runs at a rate other than the decode target.
+//
+// `device` is either a single device NAME or a LIST of device names (the
+// default fan-out set, FR-11 / ADR-0007). Modeling it as `string | [...string]`
+// lets the TOML express multi-output, removing the prior asymmetry where only
+// the CLI could; the repeatable `--output-device` flag overrides this default
+// per invocation under the usual flag > env > toml precedence.
 #AudioOutput: {
-	device?:        string
+	device?:        string | [...string]
 	volume?:        number & >=0 & <=1 // drives mainMixerNode.outputVolume
 	rate?:          int & >0           // device nominal hardware rate
 	sample_rate?:   int & >0           // resample target fed to the mixer
@@ -199,6 +205,7 @@ package schemas
 	backoff_max_ms:     int & >0 | *5000 // SPEAK_RETRY_BACKOFF_MAX_MS
 	multiplier:         number & >0 | *2.0
 	jitter:             bool | *true // SPEAK_RETRY_JITTER
+	jitter_seed?:       int & >=0    // SPEAK_RETRY_JITTER_SEED; fixes the RNG for reproducible jitter
 	// SPEAK_RETRY_ON; default retries connect + timeout + 5xx + 429.
 	retry_on: *["connect", "timeout", "5xx", "429"] | [...#RetryOn]
 }

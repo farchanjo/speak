@@ -45,7 +45,11 @@ Chosen option: "Option A".
   engine per device (or an aggregate device) and schedules the same decoded
   `AVAudioPCMBuffer`s on each, so a single decode feeds all outputs.
 - Selection is by `--output-device` (repeatable on `say` and `realtime`) or the
-  `[audio.output].device` config; volume maps to `mainMixerNode.outputVolume`.
+  `[audio.output].device` config — which itself accepts either a single device
+  name or a **list** of names as the default fan-out set, so the multi-device
+  set is expressible in TOML as well as on the CLI (ADR-0006); the repeatable
+  flag overrides the config default per call. Volume maps to
+  `mainMixerNode.outputVolume`.
 - The entire path — server bytes -> libav decode/resample -> native mixer(s) ->
   device(s) — is digital end-to-end; nothing is exec'd and no analog stage is
   involved.
