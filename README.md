@@ -31,6 +31,59 @@ cargo build --release
 
 The binary is `target/release/speak` (also symlinked at `bin/speak`).
 
+## Testing
+
+The crate is a thin binary over a reusable library core (`src/lib.rs`), so the
+hexagonal modules are exercised both by inline unit tests and by integration
+suites under `tests/`.
+
+```bash
+export PKG_CONFIG_PATH=/opt/homebrew/lib/pkgconfig:$PKG_CONFIG_PATH
+export LIBCLANG_PATH=/opt/homebrew/opt/llvm/lib
+
+cargo test                       # unit + CLI suites (hermetic; no network)
+cargo test --features integration  # also runs the live-server suite
+```
+
+What is covered:
+
+- **Domain value objects** — voice-design tag validation (accepts
+  `"Female, British Accent"`, rejects free text), gen-param keys (`steps`
+  alias, `num_steps` rejection), and the retry/backoff policy (geometric
+  growth, jitter bounds, `retry_on` classification).
+- **Config precedence** — the `flag > env > toml > default` engine and the
+  per-key origin recorded for `config show`.
+- **Adapters** — the OpenAI `_byot` speech-request body shape (instruct +
+  pass-through gen-params), reply interpretation, the daemon's length-prefixed
+  framing round-trip over a real `UnixStream` pair, libav WAV muxing / RMS, and
+  path/acceleration resolution.
+- **CLI** — `--version`/`--help`, `ValueEnum` rejection, completions, the
+  voice-design catalog, and `config show` origin reporting, all driven against
+  the compiled binary with no network.
+
+The `integration` feature gates a suite that talks to the live server
+(`SPEAK_HOST`, default `http://solaris:8800`); each test probes the port first
+and **skips with a note** when the server is unreachable, so it is safe to run
+anywhere. It is off by default, keeping `cargo test` hermetic.
+
+### CI
+
+A CI job should export the two build env vars above (Homebrew `ffmpeg`/`llvm`)
+and run the standard gate; all four commands must exit 0:
+
+```bash
+cargo build --release
+cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+cargo test
+```
+
+`~/bin/speckit validate && ~/bin/speckit verify && ~/bin/speckit analyze` gates
+the spec corpus. The executable-Gherkin scenarios in
+`docs/arch/specs/features/` describe `speak` behavior in prose; speckit's
+`verify` grammar binds only `speckit` commands, so those scenarios report as
+`unbound` (advisory per ADR-0020) and the gate passes on zero failures.
+
 ## Usage
 
 ```bash

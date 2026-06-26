@@ -138,3 +138,29 @@ the application boundary.
 - Good: GoF roles are named in one place, so reviewers can verify intent.
 - Bad: more files and trait indirection than the flat layout; the existing
   flat modules must be refactored into the layered tree (tracked in `tasks.md`).
+
+## Refinement (2026-06-26, Validate phase)
+
+The crate is now a **library core (`src/lib.rs`) plus a thin binary
+(`src/main.rs`)** rather than a bin-only crate. `main.rs` is the clap driving
+adapter and composition root; it depends on the library via `use speak::…` and
+holds no reusable logic beyond CLI mapping. This makes the inward modules
+(`domain`, `config`, `client`, `codec`, `daemon`, `transport`, `accel`,
+`paths`, `audio`) a reusable, directly testable surface and lets the
+configuration catalog's forward-looking value objects be reachable `pub` API
+(rather than bin-private dead code).
+
+The current module layout is still the flat tree (`domain/` holds the
+`VoiceDesign`, `GenParams`, and `RetryPolicy` value objects; the other concerns
+are top-level modules), not yet the full `ports/`–`application/`–`adapters/`
+split described above. That refactor remains tracked in `tasks.md`; this ADR
+section records the lib/bin boundary as the first concrete step toward it.
+
+The Validate phase added a real test suite exercising this core: domain
+value-object units (voice-design tag validation, gen-param keys, retry/backoff
+policy), the `flag > env > toml > default` precedence engine and per-key
+origins, adapter tests (the `_byot` speech-request body shape, daemon
+length-prefixed framing over a `UnixStream` pair, libav WAV/RMS helpers, path
+and acceleration resolution), and a binary-driven CLI suite. A feature-gated
+`integration` suite talks to the live server and skips with a note when it is
+unreachable. See the README "Testing" section for the commands and the CI gate.
