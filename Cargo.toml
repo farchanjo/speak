@@ -11,8 +11,8 @@ name = "speak"
 path = "src/main.rs"
 
 [dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "signal", "time", "io-util"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "signal", "time", "io-util", "net", "sync", "process"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "http2"] }
 clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 clap_complete = "4"
 serde = { version = "1", features = ["derive"] }

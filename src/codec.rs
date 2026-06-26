@@ -68,12 +68,43 @@ fn ff_err(code: c_int) -> anyhow::Error {
     anyhow!("libav error: {}", ff::Error::from(code))
 }
 
+/// Options controlling the libav decode path.
+#[derive(Debug, Clone)]
+pub struct DecodeOptions {
+    /// Decoder thread count (0 = all local cores).
+    pub threads: u32,
+    /// libav log level name (`quiet`/`error`/`info`/`debug`/...).
+    pub log_level: String,
+}
+
+impl Default for DecodeOptions {
+    fn default() -> Self {
+        Self { threads: 0, log_level: "error".to_owned() }
+    }
+}
+
+fn log_level_value(name: &str) -> c_int {
+    match name {
+        "quiet" => -8,
+        "panic" => 0,
+        "fatal" => 8,
+        "warning" | "warn" => 24,
+        "info" => 32,
+        "verbose" => 40,
+        "debug" => 48,
+        "trace" => 56,
+        _ => 16, // error
+    }
+}
+
 /// Decode a compressed audio buffer into canonical 48 kHz stereo float PCM.
-pub fn decode(bytes: Vec<u8>) -> Result<Pcm> {
+pub fn decode(bytes: Vec<u8>, opts: &DecodeOptions) -> Result<Pcm> {
     ensure_init()?;
+    // SAFETY: setting the global libav log level is thread-safe.
+    unsafe { ffi::av_log_set_level(log_level_value(&opts.log_level)) };
     let mut avio = Avio::default();
     let mut input = open_mem_input(bytes, &mut avio)?;
-    let samples = decode_stream(&mut input)?;
+    let samples = decode_stream(&mut input, opts.threads)?;
     drop(input);
     drop(avio);
     Ok(Pcm {
@@ -273,8 +304,8 @@ unsafe fn finish_open(ctx: *mut ffi::AVIOContext) -> Result<ff::format::context:
 // Decode loop
 // ---------------------------------------------------------------------------
 
-fn decode_stream(input: &mut ff::format::context::Input) -> Result<Vec<f32>> {
-    let (index, mut decoder) = open_audio_decoder(input)?;
+fn decode_stream(input: &mut ff::format::context::Input, threads: u32) -> Result<Vec<f32>> {
+    let (index, mut decoder) = open_audio_decoder(input, threads)?;
     let mut resampler: Option<Resampler> = None;
     let mut frame = ff::frame::Audio::empty();
     let mut out = Vec::<u8>::new();
@@ -297,6 +328,7 @@ fn decode_stream(input: &mut ff::format::context::Input) -> Result<Vec<f32>> {
 
 fn open_audio_decoder(
     input: &mut ff::format::context::Input,
+    threads: u32,
 ) -> Result<(usize, ff::codec::decoder::Audio)> {
     let stream = input
         .streams()
@@ -306,7 +338,7 @@ fn open_audio_decoder(
     // Prefer the best available local decoder (e.g. AudioToolbox `*_at` on
     // macOS) when the accel policy allows; fall back to the default on failure.
     if let Some(codec) = chosen_decoder(&stream) {
-        if let Ok(audio) = fresh_ctx(&stream)?
+        if let Ok(audio) = fresh_ctx(&stream, threads)?
             .decoder()
             .open_as(codec)
             .and_then(|o| o.audio())
@@ -314,20 +346,20 @@ fn open_audio_decoder(
             return Ok((index, audio));
         }
     }
-    let decoder = fresh_ctx(&stream)?
+    let decoder = fresh_ctx(&stream, threads)?
         .decoder()
         .audio()
         .context("open audio decoder")?;
     Ok((index, decoder))
 }
 
-/// Build a decode context with libav frame threading across all local cores.
-/// Audio codecs have no GPU/NVENC path; that hardware is server-side.
-fn fresh_ctx(stream: &ff::Stream<'_>) -> Result<ff::codec::context::Context> {
+/// Build a decode context with libav frame threading. `threads` 0 = all local
+/// cores. Audio codecs have no GPU/NVENC path; that hardware is server-side.
+fn fresh_ctx(stream: &ff::Stream<'_>, threads: u32) -> Result<ff::codec::context::Context> {
     let mut ctx = ff::codec::context::Context::from_parameters(stream.parameters())?;
     ctx.set_threading(ff::codec::threading::Config {
         kind: ff::codec::threading::Type::Frame,
-        count: 0,
+        count: threads as usize,
     });
     Ok(ctx)
 }

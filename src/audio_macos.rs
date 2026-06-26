@@ -23,12 +23,13 @@ use crate::codec::Pcm;
 
 /// Play interleaved float PCM through the native CoreAudio mixer, blocking
 /// until the buffer finishes rendering (or a safety timeout elapses).
-pub fn play(pcm: &Pcm) -> Result<()> {
+pub fn play(pcm: &Pcm, volume: f32) -> Result<()> {
     if pcm.samples.is_empty() {
         bail!("no PCM samples to play");
     }
+    let volume = volume.clamp(0.0, 1.0);
     autoreleasepool(|_| {
-        objc2::exception::catch(|| play_inner(pcm))
+        objc2::exception::catch(|| play_inner(pcm, volume))
             .map_err(|e| anyhow!("CoreAudio playback raised an exception: {e:?}"))?
     })
 }
@@ -44,7 +45,7 @@ pub fn capture_chunk(device: u32, secs: f64) -> Result<Pcm> {
     })
 }
 
-fn play_inner(pcm: &Pcm) -> Result<()> {
+fn play_inner(pcm: &Pcm, volume: f32) -> Result<()> {
     // SAFETY: AVFAudio objects are created and wired on this thread following
     // the documented AVAudioEngine setup contract; pointers stay valid for the
     // duration of each call.
@@ -55,6 +56,7 @@ fn play_inner(pcm: &Pcm) -> Result<()> {
         let player = AVAudioPlayerNode::new();
         engine.attachNode(&player);
         let mixer = engine.mainMixerNode();
+        mixer.setOutputVolume(volume);
         engine.connect_to_format(&player, &mixer, Some(&format));
         engine.prepare();
         engine

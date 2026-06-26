@@ -9,7 +9,7 @@ use anyhow::{bail, Result};
 use crate::codec::Pcm;
 
 /// Playback is unsupported off macOS (see module docs).
-pub fn play(_pcm: &Pcm) -> Result<()> {
+pub fn play(_pcm: &Pcm, _volume: f32) -> Result<()> {
     bail!("native audio playback is only implemented on macOS (CoreAudio); use -o FILE / --no-play")
 }
 

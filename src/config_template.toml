@@ -1,0 +1,94 @@
+# speak configuration — ~/.speak/config.toml
+#
+# Precedence per key: command-line flag > environment (SPEAK_*) > this file >
+# built-in default. Every key below shows its default (commented out). Set the
+# matching env var SPEAK_<SECTION>_<KEY> to override without editing this file
+# (legacy SPEAK_HOST/SPEAK_API_KEY/SPEAK_LANG/SPEAK_VOICE/SPEAK_FORMAT/SPEAK_LOG
+# are honored). Run `speak config show` to see every value and where it came
+# from, and `speak check` for hardware-acceleration details.
+
+[server]
+host = "http://solaris:8800"
+# api_key = "sk-..."          # bearer token; sent only when set
+# timeout = 300               # per-request timeout (seconds)
+# connect_timeout = 10        # connect timeout (seconds)
+# pool_max_idle = 8           # idle keep-alive connections per host
+# pool_idle_timeout = 90      # idle connection lifetime (seconds)
+# tcp_keepalive = 60          # TCP keep-alive (seconds)
+# http2 = false               # prefer HTTP/2 prior knowledge
+# user_agent = "speak/0.1.0"
+
+[tts]
+language = "pt-BR"
+voice = "alloy"               # saved voice name for cloning
+format = "mp3"                # mp3 | opus | aac | flac | wav | pcm
+model = "tts-1"
+# speed = 1.0
+# instruct = "Female, British Accent"   # voice design tags
+# native = false              # use the server's native /tts endpoint
+
+[tts.gen]                     # all unset => server default
+# num_step = 32
+# guidance_scale = 3.0
+# t_shift = 1.0
+# layer_penalty_factor = 1.0
+# position_temperature = 1.0
+# class_temperature = 1.0
+# denoise = true
+# preprocess_prompt = true
+# postprocess_output = true
+# audio_chunk_duration = 10.0
+# audio_chunk_threshold = 0.5
+
+[asr]
+model = "whisper-1"
+# language = "pt"             # source language hint (auto-detect when unset)
+format = "json"               # text | json | srt | vtt | verbose_json
+
+[audio.output]
+# device = "default"          # advisory; default = system output
+volume = 1.0                  # mixer output volume 0.0..=1.0
+# sample_rate = 48000         # advisory (mixer converts to hardware rate)
+# channels = 2                # advisory
+# buffer_frames = 4096        # advisory
+play = true                   # play locally by default
+
+[audio.input]
+device = 0                    # input device index (0 = system default)
+sample_rate = 16000           # advisory; ASR uploads resample to 16 kHz mono
+channels = 1                  # advisory
+chunk_secs = 5.0              # realtime capture chunk length
+silence_threshold_db = -38.0  # silence gate threshold (dBFS)
+vad = true                    # enable the silence/VAD gate
+
+[ffmpeg]
+threads = 0                   # decoder threads (0 = all local cores)
+resampler = "swr"             # swr | soxr
+# resample_quality = 10       # engine-specific filter size / precision
+dither = true                 # dither when converting to integer formats
+# sample_fmt = "flt"          # forced intermediate sample format (advisory)
+log_level = "error"           # quiet | panic | fatal | error | warning | info | debug
+# extra_filters = "loudnorm"  # extra libavfilter audio filtergraph
+
+[realtime]
+# from = "en"                 # source language (auto-detect when unset)
+to = "en"                     # target language (en => Whisper translate)
+speak = false                 # synthesize + play the result
+chunk_secs = 5.0
+
+[daemon]
+# socket = "~/.speak/speak.sock"
+idle_timeout = 0              # auto-stop after N idle seconds (0 = never)
+autostart = false             # auto-start a daemon for CLI calls
+
+[general]
+quiet = false
+json = false
+color = true
+# temp_dir = "/tmp"
+# log = "info"                # SPEAK_LOG level; "off" disables file logging
+# save_dir = "~/Audio"        # default directory for say -o
+retry = 2                     # retry attempts on transient HTTP errors
+backoff_ms = 250              # base retry backoff (milliseconds)
+# translate_url = "http://solaris:8800/v1/chat/completions"
+# translate_model = "gpt-4o-mini"

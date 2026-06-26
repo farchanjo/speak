@@ -14,27 +14,13 @@ use tracing_subscriber::EnvFilter;
 
 /// Env var selecting the log level / filter.
 pub const ENV_LEVEL: &str = "SPEAK_LOG";
-/// Env var overriding the log directory.
-pub const ENV_DIR: &str = "SPEAK_LOG_DIR";
 /// How many rotated files to keep.
 const RETENTION: usize = 7;
 
 /// Resolve the log directory (`SPEAK_LOG_DIR` or `~/.speak/logs`).
 #[must_use]
 pub fn log_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os(ENV_DIR).filter(|s| !s.is_empty()) {
-        return PathBuf::from(dir);
-    }
-    speak_home().join("logs")
-}
-
-/// The `speak` project home (`~/.speak`).
-#[must_use]
-pub fn speak_home() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".speak")
+    crate::paths::log_dir()
 }
 
 /// Initialise rotating file logging. The returned guard must be kept alive for
