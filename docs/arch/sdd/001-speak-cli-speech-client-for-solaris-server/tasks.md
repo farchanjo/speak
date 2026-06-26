@@ -31,20 +31,24 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
 ## Domain (pure, zero IO)
 
 - [ ] T010 `[domain]` `Language`, `SampleFormat`, `PcmBuffer` value objects.
-- [ ] T011 `[domain]` `VoiceDesign` value object: the canonical 23 EN tags with
+- [x] T011 `[domain]` `VoiceDesign` value object: the canonical 23 EN tags with
   parse/validate (reject free text) and `list-designs` source.
+  (`src/domain/voice_design.rs`, unit-tested; wired into `say --instruct` and
+  `--list-designs`.)
 - [ ] T012 `[domain]` `Voice`, `VoiceClone` (saved name, optional `ref_text`).
-- [ ] T013 `[domain]` `GenParams` value object (num_step/steps alias,
+- [x] T013 `[domain]` `GenParams` value object (num_step/steps alias,
   guidance_scale, t_shift, layer_penalty_factor, position/class_temperature,
   denoise, preprocess_prompt, postprocess_output, audio_chunk_duration/
   threshold) with validated key set. The only canonical step key is `num_step`
   (CLI alias `steps`); reject `num_steps` and any other unknown key.
+  (`src/domain/gen_params.rs`, unit-tested; wired into `say --set`.)
 - [ ] T014 `[domain]` `SpeechSpec` aggregate (input + voice mode + format +
   language + speed + gen-params) and domain `errors`.
-- [ ] T015 `[domain]` `RetryPolicy` value object (max_retries, backoff_initial_ms,
+- [x] T015 `[domain]` `RetryPolicy` value object (max_retries, backoff_initial_ms,
   backoff_max_ms, multiplier, jitter, `retry_on` classification via `RetryOn`):
   pure backoff/jitter computation, no I/O (FR-17 / ADR-0004). Unit-test attempt
   count, geometric delay growth, jitter bounds, and `retry_on` classification.
+  (`src/domain/retry.rs`, six unit tests; seed-injected jitter for purity.)
 
 ## Ports (traits)
 
@@ -97,6 +101,9 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   `domain::GenParams` value object and bump `edition = "2024"`/`resolver = "3"`
   (the deferral owner, ADR-0008): run `cargo fix --edition`, verify MSRV 1.85
   and a green build/clippy.
+  (Partial: the `[retry]` section now resolves into `domain::retry::RetryPolicy`
+  with full `SPEAK_RETRY_*` overrides and appears in `config show`; the layered
+  tree move, the `[http]` split, and the edition-2024 bump remain pending.)
 - [ ] T038 `[adapter:libav]` record-output **encode**: hand-muxed WAV (no
   encoder) and FLAC via the libavcodec FLAC encoder through an in-memory AVIO
   **write** callback; implements `AudioEncoder` (`record --format wav|flac`,
@@ -116,6 +123,9 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   the policy. Bounded exponential backoff + jitter, `retry_on` classification
   (connect/timeout/5xx/429); the `sse` reconnect rides the same policy.
   Configured from `[retry]`, injected at the composition root (FR-17 / ADR-0004).
+  (Partial: the seeded backoff loop now lives in the reqwest `SpeechClient` and
+  honors the full `retry_on` classification incl. 5xx/429 responses; extraction
+  into a generic port-preserving decorator across all driven ports is pending.)
 
 ## Application (use cases)
 
