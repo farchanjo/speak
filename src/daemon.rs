@@ -131,7 +131,9 @@ pub async fn is_running(socket: &Path) -> bool {
 }
 
 async fn forward(socket: &Path, request: Request, body: Option<Vec<u8>>) -> Result<ProxyReply> {
-    let mut stream = UnixStream::connect(socket).await.context("connecting to daemon socket")?;
+    let mut stream = UnixStream::connect(socket)
+        .await
+        .context("connecting to daemon socket")?;
     write_frame(&mut stream, &serde_json::to_vec(&request)?).await?;
     if let Some(bytes) = body {
         write_frame(&mut stream, &bytes).await?;
@@ -171,10 +173,12 @@ async fn start(cfg: &Config, _foreground: bool) -> Result<()> {
         bail!("daemon already running at {}", socket.display());
     }
     if let Some(parent) = socket.parent() {
-        std::fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
     }
     let _ = std::fs::remove_file(&socket);
-    let listener = UnixListener::bind(&socket).with_context(|| format!("binding {}", socket.display()))?;
+    let listener =
+        UnixListener::bind(&socket).with_context(|| format!("binding {}", socket.display()))?;
     let state = Arc::new(State {
         client: SpeechClient::new(cfg)?,
         started: Instant::now(),
@@ -187,7 +191,11 @@ async fn start(cfg: &Config, _foreground: bool) -> Result<()> {
     });
     tracing::info!(socket = %socket.display(), host = %state.host, "daemon listening");
     if !cfg.general.quiet {
-        eprintln!("speak daemon listening at {} (host {})", socket.display(), state.host);
+        eprintln!(
+            "speak daemon listening at {} (host {})",
+            socket.display(),
+            state.host
+        );
     }
     accept_loop(&listener, &state).await;
     let _ = std::fs::remove_file(&socket);
@@ -223,7 +231,11 @@ fn spawn_idle_watch(state: &Arc<State>) {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(1)).await;
-            let idle = state.last_active.lock().map(|t| t.elapsed().as_secs()).unwrap_or(0);
+            let idle = state
+                .last_active
+                .lock()
+                .map(|t| t.elapsed().as_secs())
+                .unwrap_or(0);
             if idle >= state.idle_timeout {
                 state.shutdown.notify_one();
                 break;
@@ -252,11 +264,18 @@ async fn serve(mut stream: UnixStream, state: &Arc<State>) -> Result<()> {
 
 async fn serve_proxy(stream: &mut UnixStream, state: &Arc<State>, request: &Request) -> Result<()> {
     state.requests.fetch_add(1, Ordering::Relaxed);
-    let result = state.client.proxy(&request.method, &request.endpoint, request.json.clone()).await;
+    let result = state
+        .client
+        .proxy(&request.method, &request.endpoint, request.json.clone())
+        .await;
     write_reply(stream, result).await
 }
 
-async fn serve_multipart(stream: &mut UnixStream, state: &Arc<State>, request: Request) -> Result<()> {
+async fn serve_multipart(
+    stream: &mut UnixStream,
+    state: &Arc<State>,
+    request: Request,
+) -> Result<()> {
     state.requests.fetch_add(1, Ordering::Relaxed);
     let file = if request.has_file {
         Some((read_frame(stream).await?, request.filename.clone()))
@@ -340,7 +359,10 @@ async fn stop(cfg: &Config) -> Result<()> {
 async fn status(cfg: &Config) -> Result<()> {
     let socket = &cfg.daemon.socket;
     if !is_running(socket).await {
-        println!("{}", json!({"running": false, "socket": socket.display().to_string()}));
+        println!(
+            "{}",
+            json!({"running": false, "socket": socket.display().to_string()})
+        );
         return Ok(());
     }
     let mut stream = UnixStream::connect(socket).await?;

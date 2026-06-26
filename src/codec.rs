@@ -79,7 +79,10 @@ pub struct DecodeOptions {
 
 impl Default for DecodeOptions {
     fn default() -> Self {
-        Self { threads: 0, log_level: "error".to_owned() }
+        Self {
+            threads: 0,
+            log_level: "error".to_owned(),
+        }
     }
 }
 

@@ -51,7 +51,12 @@ impl Transport {
     }
 
     /// Proxy a JSON/bodyless request.
-    pub async fn proxy(&self, method: &str, endpoint: &str, json: Option<Value>) -> Result<ProxyReply> {
+    pub async fn proxy(
+        &self,
+        method: &str,
+        endpoint: &str,
+        json: Option<Value>,
+    ) -> Result<ProxyReply> {
         match self {
             Self::Direct(client) => client.proxy(method, endpoint, json).await,
             Self::Daemon(socket) => daemon::forward_json(socket, method, endpoint, json).await,
@@ -67,8 +72,14 @@ impl Transport {
         file_part: &str,
     ) -> Result<ProxyReply> {
         match self {
-            Self::Direct(client) => client.proxy_multipart(endpoint, fields, file, file_part).await,
-            Self::Daemon(socket) => daemon::forward_multipart(socket, endpoint, fields, file, file_part).await,
+            Self::Direct(client) => {
+                client
+                    .proxy_multipart(endpoint, fields, file, file_part)
+                    .await
+            }
+            Self::Daemon(socket) => {
+                daemon::forward_multipart(socket, endpoint, fields, file, file_part).await
+            }
         }
     }
 }

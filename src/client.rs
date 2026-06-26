@@ -123,7 +123,11 @@ impl ProxyReply {
         if (200..300).contains(&self.status) {
             return Ok(self);
         }
-        bail!("server returned {}: {}", self.status, String::from_utf8_lossy(&self.body).trim());
+        bail!(
+            "server returned {}: {}",
+            self.status,
+            String::from_utf8_lossy(&self.body).trim()
+        );
     }
 
     /// Interpret the reply as encoded audio.
@@ -225,7 +229,12 @@ impl SpeechClient {
     }
 
     /// Proxy a JSON (or bodyless) request to `endpoint` and collect the reply.
-    pub async fn proxy(&self, method: &str, endpoint: &str, json_body: Option<Value>) -> Result<ProxyReply> {
+    pub async fn proxy(
+        &self,
+        method: &str,
+        endpoint: &str,
+        json_body: Option<Value>,
+    ) -> Result<ProxyReply> {
         let verb = Method::from_bytes(method.as_bytes()).context("invalid HTTP method")?;
         let mut req = self.http.request(verb, self.url(endpoint));
         if let Some(body) = &json_body {
@@ -254,7 +263,9 @@ impl SpeechClient {
                 .context("building multipart file part")?;
             form = form.part(file_part.to_owned(), part);
         }
-        let resp = self.send(self.auth(self.http.post(self.url(endpoint)).multipart(form))).await?;
+        let resp = self
+            .send(self.auth(self.http.post(self.url(endpoint)).multipart(form)))
+            .await?;
         collect(resp).await
     }
 }
@@ -267,9 +278,16 @@ async fn collect(resp: reqwest::Response) -> Result<ProxyReply> {
             .map(ToOwned::to_owned)
     };
     let status = resp.status().as_u16();
-    let content_type = header("content-type").unwrap_or_else(|| "application/octet-stream".to_owned());
+    let content_type =
+        header("content-type").unwrap_or_else(|| "application/octet-stream".to_owned());
     let rtf = header("x-rtf");
     let audio_seconds = header("x-audio-seconds");
     let body = resp.bytes().await?.to_vec();
-    Ok(ProxyReply { status, content_type, rtf, audio_seconds, body })
+    Ok(ProxyReply {
+        status,
+        content_type,
+        rtf,
+        audio_seconds,
+        body,
+    })
 }

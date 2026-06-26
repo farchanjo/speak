@@ -461,10 +461,18 @@ struct Resolver {
 }
 
 fn env_parse<T: FromStr>(name: &str) -> Option<T> {
-    std::env::var(name).ok().filter(|s| !s.is_empty()).and_then(|s| s.parse().ok())
+    std::env::var(name)
+        .ok()
+        .filter(|s| !s.is_empty())
+        .and_then(|s| s.parse().ok())
 }
 
-fn pick_req<T: FromStr + Clone>(flag: Option<T>, env: &str, toml: Option<T>, default: T) -> (T, Origin) {
+fn pick_req<T: FromStr + Clone>(
+    flag: Option<T>,
+    env: &str,
+    toml: Option<T>,
+    default: T,
+) -> (T, Origin) {
     if let Some(v) = flag {
         return (v, Origin::Flag);
     }
@@ -477,7 +485,11 @@ fn pick_req<T: FromStr + Clone>(flag: Option<T>, env: &str, toml: Option<T>, def
     (default, Origin::Default)
 }
 
-fn pick_opt<T: FromStr + Clone>(flag: Option<T>, env: &str, toml: Option<T>) -> (Option<T>, Origin) {
+fn pick_opt<T: FromStr + Clone>(
+    flag: Option<T>,
+    env: &str,
+    toml: Option<T>,
+) -> (Option<T>, Origin) {
     if let Some(v) = flag {
         return (Some(v), Origin::Flag);
     }
@@ -504,7 +516,11 @@ fn default_user_agent() -> String {
 
 impl Resolver {
     fn new(flags: GlobalFlags, file: FileConfig) -> Self {
-        Self { flags, file, entries: Vec::new() }
+        Self {
+            flags,
+            file,
+            entries: Vec::new(),
+        }
     }
 
     fn record(&mut self, key: &str, value: String, origin: Origin) {
@@ -525,14 +541,26 @@ impl Resolver {
         T: FromStr + Display + Clone,
     {
         let (value, origin) = pick_opt(flag, env, toml);
-        let shown = value.as_ref().map_or_else(|| "unset".to_owned(), ToString::to_string);
+        let shown = value
+            .as_ref()
+            .map_or_else(|| "unset".to_owned(), ToString::to_string);
         self.record(key, shown, origin);
         value
     }
 
-    fn secret(&mut self, key: &str, flag: Option<String>, env: &str, toml: Option<String>) -> Option<String> {
+    fn secret(
+        &mut self,
+        key: &str,
+        flag: Option<String>,
+        env: &str,
+        toml: Option<String>,
+    ) -> Option<String> {
         let (value, origin) = pick_opt(flag, env, toml);
-        self.record(key, if value.is_some() { "***" } else { "unset" }.to_owned(), origin);
+        self.record(
+            key,
+            if value.is_some() { "***" } else { "unset" }.to_owned(),
+            origin,
+        );
         value
     }
 
@@ -545,130 +573,516 @@ impl Resolver {
         let realtime = self.realtime();
         let daemon = self.daemon();
         let general = self.general();
-        Ok(Config { server, tts, asr, audio, ffmpeg, realtime, daemon, general, entries: self.entries })
+        Ok(Config {
+            server,
+            tts,
+            asr,
+            audio,
+            ffmpeg,
+            realtime,
+            daemon,
+            general,
+            entries: self.entries,
+        })
     }
 
     fn server(&mut self) -> Server {
         Server {
-            host: self.val("server.host", self.flags.host.clone(), "SPEAK_HOST", self.file.server.host.clone(), DEFAULT_HOST.to_owned()),
-            api_key: self.secret("server.api_key", self.flags.api_key.clone(), "SPEAK_API_KEY", self.file.server.api_key.clone()),
-            timeout: self.val("server.timeout", None, "SPEAK_SERVER_TIMEOUT", self.file.server.timeout, 300),
-            connect_timeout: self.val("server.connect_timeout", None, "SPEAK_SERVER_CONNECT_TIMEOUT", self.file.server.connect_timeout, 10),
-            pool_max_idle: self.val("server.pool_max_idle", None, "SPEAK_SERVER_POOL_MAX_IDLE", self.file.server.pool_max_idle, 8),
-            pool_idle_timeout: self.val("server.pool_idle_timeout", None, "SPEAK_SERVER_POOL_IDLE_TIMEOUT", self.file.server.pool_idle_timeout, 90),
-            tcp_keepalive: self.val("server.tcp_keepalive", None, "SPEAK_SERVER_TCP_KEEPALIVE", self.file.server.tcp_keepalive, 60),
-            http2: self.val("server.http2", None, "SPEAK_SERVER_HTTP2", self.file.server.http2, false),
-            user_agent: self.val("server.user_agent", None, "SPEAK_SERVER_USER_AGENT", self.file.server.user_agent.clone(), default_user_agent()),
+            host: self.val(
+                "server.host",
+                self.flags.host.clone(),
+                "SPEAK_HOST",
+                self.file.server.host.clone(),
+                DEFAULT_HOST.to_owned(),
+            ),
+            api_key: self.secret(
+                "server.api_key",
+                self.flags.api_key.clone(),
+                "SPEAK_API_KEY",
+                self.file.server.api_key.clone(),
+            ),
+            timeout: self.val(
+                "server.timeout",
+                None,
+                "SPEAK_SERVER_TIMEOUT",
+                self.file.server.timeout,
+                300,
+            ),
+            connect_timeout: self.val(
+                "server.connect_timeout",
+                None,
+                "SPEAK_SERVER_CONNECT_TIMEOUT",
+                self.file.server.connect_timeout,
+                10,
+            ),
+            pool_max_idle: self.val(
+                "server.pool_max_idle",
+                None,
+                "SPEAK_SERVER_POOL_MAX_IDLE",
+                self.file.server.pool_max_idle,
+                8,
+            ),
+            pool_idle_timeout: self.val(
+                "server.pool_idle_timeout",
+                None,
+                "SPEAK_SERVER_POOL_IDLE_TIMEOUT",
+                self.file.server.pool_idle_timeout,
+                90,
+            ),
+            tcp_keepalive: self.val(
+                "server.tcp_keepalive",
+                None,
+                "SPEAK_SERVER_TCP_KEEPALIVE",
+                self.file.server.tcp_keepalive,
+                60,
+            ),
+            http2: self.val(
+                "server.http2",
+                None,
+                "SPEAK_SERVER_HTTP2",
+                self.file.server.http2,
+                false,
+            ),
+            user_agent: self.val(
+                "server.user_agent",
+                None,
+                "SPEAK_SERVER_USER_AGENT",
+                self.file.server.user_agent.clone(),
+                default_user_agent(),
+            ),
         }
     }
 
     fn tts(&mut self) -> Tts {
         Tts {
-            language: self.val("tts.language", self.flags.lang.clone(), "SPEAK_LANG", self.file.tts.language.clone(), DEFAULT_LANG.to_owned()),
-            voice: self.val("tts.voice", self.flags.voice.clone(), "SPEAK_VOICE", self.file.tts.voice.clone(), DEFAULT_VOICE.to_owned()),
-            format: self.val("tts.format", None, "SPEAK_FORMAT", self.file.tts.format.clone(), DEFAULT_FORMAT.to_owned()),
-            model: self.val("tts.model", None, "SPEAK_TTS_MODEL", self.file.tts.model.clone(), "tts-1".to_owned()),
-            speed: self.val("tts.speed", None, "SPEAK_TTS_SPEED", self.file.tts.speed, 1.0),
-            instruct: self.opt("tts.instruct", None, "SPEAK_TTS_INSTRUCT", self.file.tts.instruct.clone()),
-            native: self.val("tts.native", None, "SPEAK_TTS_NATIVE", self.file.tts.native, false),
+            language: self.val(
+                "tts.language",
+                self.flags.lang.clone(),
+                "SPEAK_LANG",
+                self.file.tts.language.clone(),
+                DEFAULT_LANG.to_owned(),
+            ),
+            voice: self.val(
+                "tts.voice",
+                self.flags.voice.clone(),
+                "SPEAK_VOICE",
+                self.file.tts.voice.clone(),
+                DEFAULT_VOICE.to_owned(),
+            ),
+            format: self.val(
+                "tts.format",
+                None,
+                "SPEAK_FORMAT",
+                self.file.tts.format.clone(),
+                DEFAULT_FORMAT.to_owned(),
+            ),
+            model: self.val(
+                "tts.model",
+                None,
+                "SPEAK_TTS_MODEL",
+                self.file.tts.model.clone(),
+                "tts-1".to_owned(),
+            ),
+            speed: self.val(
+                "tts.speed",
+                None,
+                "SPEAK_TTS_SPEED",
+                self.file.tts.speed,
+                1.0,
+            ),
+            instruct: self.opt(
+                "tts.instruct",
+                None,
+                "SPEAK_TTS_INSTRUCT",
+                self.file.tts.instruct.clone(),
+            ),
+            native: self.val(
+                "tts.native",
+                None,
+                "SPEAK_TTS_NATIVE",
+                self.file.tts.native,
+                false,
+            ),
             gen: self.gen(),
         }
     }
 
     fn gen(&mut self) -> Gen {
         Gen {
-            num_step: self.opt("tts.gen.num_step", None, "SPEAK_TTS_GEN_NUM_STEP", self.file.tts.gen.num_step),
-            guidance_scale: self.opt("tts.gen.guidance_scale", None, "SPEAK_TTS_GEN_GUIDANCE_SCALE", self.file.tts.gen.guidance_scale),
-            t_shift: self.opt("tts.gen.t_shift", None, "SPEAK_TTS_GEN_T_SHIFT", self.file.tts.gen.t_shift),
-            layer_penalty_factor: self.opt("tts.gen.layer_penalty_factor", None, "SPEAK_TTS_GEN_LAYER_PENALTY_FACTOR", self.file.tts.gen.layer_penalty_factor),
-            position_temperature: self.opt("tts.gen.position_temperature", None, "SPEAK_TTS_GEN_POSITION_TEMPERATURE", self.file.tts.gen.position_temperature),
-            class_temperature: self.opt("tts.gen.class_temperature", None, "SPEAK_TTS_GEN_CLASS_TEMPERATURE", self.file.tts.gen.class_temperature),
-            denoise: self.opt("tts.gen.denoise", None, "SPEAK_TTS_GEN_DENOISE", self.file.tts.gen.denoise),
-            preprocess_prompt: self.opt("tts.gen.preprocess_prompt", None, "SPEAK_TTS_GEN_PREPROCESS_PROMPT", self.file.tts.gen.preprocess_prompt),
-            postprocess_output: self.opt("tts.gen.postprocess_output", None, "SPEAK_TTS_GEN_POSTPROCESS_OUTPUT", self.file.tts.gen.postprocess_output),
-            audio_chunk_duration: self.opt("tts.gen.audio_chunk_duration", None, "SPEAK_TTS_GEN_AUDIO_CHUNK_DURATION", self.file.tts.gen.audio_chunk_duration),
-            audio_chunk_threshold: self.opt("tts.gen.audio_chunk_threshold", None, "SPEAK_TTS_GEN_AUDIO_CHUNK_THRESHOLD", self.file.tts.gen.audio_chunk_threshold),
+            num_step: self.opt(
+                "tts.gen.num_step",
+                None,
+                "SPEAK_TTS_GEN_NUM_STEP",
+                self.file.tts.gen.num_step,
+            ),
+            guidance_scale: self.opt(
+                "tts.gen.guidance_scale",
+                None,
+                "SPEAK_TTS_GEN_GUIDANCE_SCALE",
+                self.file.tts.gen.guidance_scale,
+            ),
+            t_shift: self.opt(
+                "tts.gen.t_shift",
+                None,
+                "SPEAK_TTS_GEN_T_SHIFT",
+                self.file.tts.gen.t_shift,
+            ),
+            layer_penalty_factor: self.opt(
+                "tts.gen.layer_penalty_factor",
+                None,
+                "SPEAK_TTS_GEN_LAYER_PENALTY_FACTOR",
+                self.file.tts.gen.layer_penalty_factor,
+            ),
+            position_temperature: self.opt(
+                "tts.gen.position_temperature",
+                None,
+                "SPEAK_TTS_GEN_POSITION_TEMPERATURE",
+                self.file.tts.gen.position_temperature,
+            ),
+            class_temperature: self.opt(
+                "tts.gen.class_temperature",
+                None,
+                "SPEAK_TTS_GEN_CLASS_TEMPERATURE",
+                self.file.tts.gen.class_temperature,
+            ),
+            denoise: self.opt(
+                "tts.gen.denoise",
+                None,
+                "SPEAK_TTS_GEN_DENOISE",
+                self.file.tts.gen.denoise,
+            ),
+            preprocess_prompt: self.opt(
+                "tts.gen.preprocess_prompt",
+                None,
+                "SPEAK_TTS_GEN_PREPROCESS_PROMPT",
+                self.file.tts.gen.preprocess_prompt,
+            ),
+            postprocess_output: self.opt(
+                "tts.gen.postprocess_output",
+                None,
+                "SPEAK_TTS_GEN_POSTPROCESS_OUTPUT",
+                self.file.tts.gen.postprocess_output,
+            ),
+            audio_chunk_duration: self.opt(
+                "tts.gen.audio_chunk_duration",
+                None,
+                "SPEAK_TTS_GEN_AUDIO_CHUNK_DURATION",
+                self.file.tts.gen.audio_chunk_duration,
+            ),
+            audio_chunk_threshold: self.opt(
+                "tts.gen.audio_chunk_threshold",
+                None,
+                "SPEAK_TTS_GEN_AUDIO_CHUNK_THRESHOLD",
+                self.file.tts.gen.audio_chunk_threshold,
+            ),
         }
     }
 
     fn asr(&mut self) -> Asr {
         Asr {
-            model: self.val("asr.model", None, "SPEAK_ASR_MODEL", self.file.asr.model.clone(), "whisper-1".to_owned()),
-            language: self.opt("asr.language", None, "SPEAK_ASR_LANGUAGE", self.file.asr.language.clone()),
-            format: self.val("asr.format", None, "SPEAK_ASR_FORMAT", self.file.asr.format.clone(), "json".to_owned()),
+            model: self.val(
+                "asr.model",
+                None,
+                "SPEAK_ASR_MODEL",
+                self.file.asr.model.clone(),
+                "whisper-1".to_owned(),
+            ),
+            language: self.opt(
+                "asr.language",
+                None,
+                "SPEAK_ASR_LANGUAGE",
+                self.file.asr.language.clone(),
+            ),
+            format: self.val(
+                "asr.format",
+                None,
+                "SPEAK_ASR_FORMAT",
+                self.file.asr.format.clone(),
+                "json".to_owned(),
+            ),
         }
     }
 
     fn audio(&mut self) -> Audio {
-        Audio { output: self.output(), input: self.input() }
+        Audio {
+            output: self.output(),
+            input: self.input(),
+        }
     }
 
     fn output(&mut self) -> Output {
         Output {
-            device: self.opt("audio.output.device", None, "SPEAK_AUDIO_OUTPUT_DEVICE", self.file.audio.output.device.clone()),
-            volume: self.val("audio.output.volume", None, "SPEAK_AUDIO_OUTPUT_VOLUME", self.file.audio.output.volume, 1.0),
-            sample_rate: self.opt("audio.output.sample_rate", None, "SPEAK_AUDIO_OUTPUT_SAMPLE_RATE", self.file.audio.output.sample_rate),
-            channels: self.opt("audio.output.channels", None, "SPEAK_AUDIO_OUTPUT_CHANNELS", self.file.audio.output.channels),
-            buffer_frames: self.opt("audio.output.buffer_frames", None, "SPEAK_AUDIO_OUTPUT_BUFFER_FRAMES", self.file.audio.output.buffer_frames),
-            play: self.val("audio.output.play", None, "SPEAK_AUDIO_OUTPUT_PLAY", self.file.audio.output.play, true),
+            device: self.opt(
+                "audio.output.device",
+                None,
+                "SPEAK_AUDIO_OUTPUT_DEVICE",
+                self.file.audio.output.device.clone(),
+            ),
+            volume: self.val(
+                "audio.output.volume",
+                None,
+                "SPEAK_AUDIO_OUTPUT_VOLUME",
+                self.file.audio.output.volume,
+                1.0,
+            ),
+            sample_rate: self.opt(
+                "audio.output.sample_rate",
+                None,
+                "SPEAK_AUDIO_OUTPUT_SAMPLE_RATE",
+                self.file.audio.output.sample_rate,
+            ),
+            channels: self.opt(
+                "audio.output.channels",
+                None,
+                "SPEAK_AUDIO_OUTPUT_CHANNELS",
+                self.file.audio.output.channels,
+            ),
+            buffer_frames: self.opt(
+                "audio.output.buffer_frames",
+                None,
+                "SPEAK_AUDIO_OUTPUT_BUFFER_FRAMES",
+                self.file.audio.output.buffer_frames,
+            ),
+            play: self.val(
+                "audio.output.play",
+                None,
+                "SPEAK_AUDIO_OUTPUT_PLAY",
+                self.file.audio.output.play,
+                true,
+            ),
         }
     }
 
     fn input(&mut self) -> Input {
         Input {
-            device: self.val("audio.input.device", None, "SPEAK_AUDIO_INPUT_DEVICE", self.file.audio.input.device, 0),
-            sample_rate: self.val("audio.input.sample_rate", None, "SPEAK_AUDIO_INPUT_SAMPLE_RATE", self.file.audio.input.sample_rate, 16_000),
-            channels: self.val("audio.input.channels", None, "SPEAK_AUDIO_INPUT_CHANNELS", self.file.audio.input.channels, 1),
-            chunk_secs: self.val("audio.input.chunk_secs", None, "SPEAK_AUDIO_INPUT_CHUNK_SECS", self.file.audio.input.chunk_secs, 5.0),
-            silence_threshold_db: self.val("audio.input.silence_threshold_db", None, "SPEAK_AUDIO_INPUT_SILENCE_THRESHOLD_DB", self.file.audio.input.silence_threshold_db, -38.0),
-            vad: self.val("audio.input.vad", None, "SPEAK_AUDIO_INPUT_VAD", self.file.audio.input.vad, true),
+            device: self.val(
+                "audio.input.device",
+                None,
+                "SPEAK_AUDIO_INPUT_DEVICE",
+                self.file.audio.input.device,
+                0,
+            ),
+            sample_rate: self.val(
+                "audio.input.sample_rate",
+                None,
+                "SPEAK_AUDIO_INPUT_SAMPLE_RATE",
+                self.file.audio.input.sample_rate,
+                16_000,
+            ),
+            channels: self.val(
+                "audio.input.channels",
+                None,
+                "SPEAK_AUDIO_INPUT_CHANNELS",
+                self.file.audio.input.channels,
+                1,
+            ),
+            chunk_secs: self.val(
+                "audio.input.chunk_secs",
+                None,
+                "SPEAK_AUDIO_INPUT_CHUNK_SECS",
+                self.file.audio.input.chunk_secs,
+                5.0,
+            ),
+            silence_threshold_db: self.val(
+                "audio.input.silence_threshold_db",
+                None,
+                "SPEAK_AUDIO_INPUT_SILENCE_THRESHOLD_DB",
+                self.file.audio.input.silence_threshold_db,
+                -38.0,
+            ),
+            vad: self.val(
+                "audio.input.vad",
+                None,
+                "SPEAK_AUDIO_INPUT_VAD",
+                self.file.audio.input.vad,
+                true,
+            ),
         }
     }
 
     fn ffmpeg(&mut self) -> Ffmpeg {
         Ffmpeg {
-            threads: self.val("ffmpeg.threads", None, "SPEAK_FFMPEG_THREADS", self.file.ffmpeg.threads, 0),
-            resampler: self.val("ffmpeg.resampler", None, "SPEAK_FFMPEG_RESAMPLER", self.file.ffmpeg.resampler.clone(), "swr".to_owned()),
-            resample_quality: self.opt("ffmpeg.resample_quality", None, "SPEAK_FFMPEG_RESAMPLE_QUALITY", self.file.ffmpeg.resample_quality),
-            dither: self.val("ffmpeg.dither", None, "SPEAK_FFMPEG_DITHER", self.file.ffmpeg.dither, true),
-            sample_fmt: self.opt("ffmpeg.sample_fmt", None, "SPEAK_FFMPEG_SAMPLE_FMT", self.file.ffmpeg.sample_fmt.clone()),
-            log_level: self.val("ffmpeg.log_level", None, "SPEAK_FFMPEG_LOG_LEVEL", self.file.ffmpeg.log_level.clone(), "error".to_owned()),
-            extra_filters: self.opt("ffmpeg.extra_filters", None, "SPEAK_FFMPEG_EXTRA_FILTERS", self.file.ffmpeg.extra_filters.clone()),
+            threads: self.val(
+                "ffmpeg.threads",
+                None,
+                "SPEAK_FFMPEG_THREADS",
+                self.file.ffmpeg.threads,
+                0,
+            ),
+            resampler: self.val(
+                "ffmpeg.resampler",
+                None,
+                "SPEAK_FFMPEG_RESAMPLER",
+                self.file.ffmpeg.resampler.clone(),
+                "swr".to_owned(),
+            ),
+            resample_quality: self.opt(
+                "ffmpeg.resample_quality",
+                None,
+                "SPEAK_FFMPEG_RESAMPLE_QUALITY",
+                self.file.ffmpeg.resample_quality,
+            ),
+            dither: self.val(
+                "ffmpeg.dither",
+                None,
+                "SPEAK_FFMPEG_DITHER",
+                self.file.ffmpeg.dither,
+                true,
+            ),
+            sample_fmt: self.opt(
+                "ffmpeg.sample_fmt",
+                None,
+                "SPEAK_FFMPEG_SAMPLE_FMT",
+                self.file.ffmpeg.sample_fmt.clone(),
+            ),
+            log_level: self.val(
+                "ffmpeg.log_level",
+                None,
+                "SPEAK_FFMPEG_LOG_LEVEL",
+                self.file.ffmpeg.log_level.clone(),
+                "error".to_owned(),
+            ),
+            extra_filters: self.opt(
+                "ffmpeg.extra_filters",
+                None,
+                "SPEAK_FFMPEG_EXTRA_FILTERS",
+                self.file.ffmpeg.extra_filters.clone(),
+            ),
         }
     }
 
     fn realtime(&mut self) -> Realtime {
         Realtime {
-            from: self.opt("realtime.from", None, "SPEAK_REALTIME_FROM", self.file.realtime.from.clone()),
-            to: self.val("realtime.to", None, "SPEAK_REALTIME_TO", self.file.realtime.to.clone(), "en".to_owned()),
-            speak: self.val("realtime.speak", None, "SPEAK_REALTIME_SPEAK", self.file.realtime.speak, false),
-            chunk_secs: self.val("realtime.chunk_secs", None, "SPEAK_REALTIME_CHUNK_SECS", self.file.realtime.chunk_secs, 5.0),
+            from: self.opt(
+                "realtime.from",
+                None,
+                "SPEAK_REALTIME_FROM",
+                self.file.realtime.from.clone(),
+            ),
+            to: self.val(
+                "realtime.to",
+                None,
+                "SPEAK_REALTIME_TO",
+                self.file.realtime.to.clone(),
+                "en".to_owned(),
+            ),
+            speak: self.val(
+                "realtime.speak",
+                None,
+                "SPEAK_REALTIME_SPEAK",
+                self.file.realtime.speak,
+                false,
+            ),
+            chunk_secs: self.val(
+                "realtime.chunk_secs",
+                None,
+                "SPEAK_REALTIME_CHUNK_SECS",
+                self.file.realtime.chunk_secs,
+                5.0,
+            ),
         }
     }
 
     fn daemon(&mut self) -> Daemon {
         let default_socket = paths::default_socket().display().to_string();
-        let socket = self.val("daemon.socket", None, "SPEAK_DAEMON_SOCKET", self.file.daemon.socket.clone(), default_socket);
+        let socket = self.val(
+            "daemon.socket",
+            None,
+            "SPEAK_DAEMON_SOCKET",
+            self.file.daemon.socket.clone(),
+            default_socket,
+        );
         Daemon {
             socket: PathBuf::from(socket),
-            idle_timeout: self.val("daemon.idle_timeout", None, "SPEAK_DAEMON_IDLE_TIMEOUT", self.file.daemon.idle_timeout, 0),
-            autostart: self.val("daemon.autostart", None, "SPEAK_DAEMON_AUTOSTART", self.file.daemon.autostart, false),
+            idle_timeout: self.val(
+                "daemon.idle_timeout",
+                None,
+                "SPEAK_DAEMON_IDLE_TIMEOUT",
+                self.file.daemon.idle_timeout,
+                0,
+            ),
+            autostart: self.val(
+                "daemon.autostart",
+                None,
+                "SPEAK_DAEMON_AUTOSTART",
+                self.file.daemon.autostart,
+                false,
+            ),
         }
     }
 
     fn general(&mut self) -> General {
         self.record_config_path();
         General {
-            quiet: self.val("general.quiet", flag_true(self.flags.quiet), "SPEAK_QUIET", self.file.general.quiet, false),
-            json: self.val("general.json", None, "SPEAK_JSON", self.file.general.json, false),
-            color: self.val("general.color", None, "SPEAK_COLOR", self.file.general.color, true),
-            temp_dir: self.opt("general.temp_dir", None, "SPEAK_TEMP_DIR", self.file.general.temp_dir.clone()).map(PathBuf::from),
-            log: self.opt("general.log", None, "SPEAK_LOG", self.file.general.log.clone()),
-            save_dir: self.opt("general.save_dir", None, "SPEAK_SAVE_DIR", self.file.general.save_dir.clone()).map(PathBuf::from),
-            retry: self.val("general.retry", None, "SPEAK_RETRY", self.file.general.retry, 2),
-            backoff_ms: self.val("general.backoff_ms", None, "SPEAK_BACKOFF_MS", self.file.general.backoff_ms, 250),
-            translate_url: self.opt("general.translate_url", None, "SPEAK_TRANSLATE_URL", self.file.general.translate_url.clone()),
-            translate_model: self.opt("general.translate_model", None, "SPEAK_TRANSLATE_MODEL", self.file.general.translate_model.clone()),
+            quiet: self.val(
+                "general.quiet",
+                flag_true(self.flags.quiet),
+                "SPEAK_QUIET",
+                self.file.general.quiet,
+                false,
+            ),
+            json: self.val(
+                "general.json",
+                None,
+                "SPEAK_JSON",
+                self.file.general.json,
+                false,
+            ),
+            color: self.val(
+                "general.color",
+                None,
+                "SPEAK_COLOR",
+                self.file.general.color,
+                true,
+            ),
+            temp_dir: self
+                .opt(
+                    "general.temp_dir",
+                    None,
+                    "SPEAK_TEMP_DIR",
+                    self.file.general.temp_dir.clone(),
+                )
+                .map(PathBuf::from),
+            log: self.opt(
+                "general.log",
+                None,
+                "SPEAK_LOG",
+                self.file.general.log.clone(),
+            ),
+            save_dir: self
+                .opt(
+                    "general.save_dir",
+                    None,
+                    "SPEAK_SAVE_DIR",
+                    self.file.general.save_dir.clone(),
+                )
+                .map(PathBuf::from),
+            retry: self.val(
+                "general.retry",
+                None,
+                "SPEAK_RETRY",
+                self.file.general.retry,
+                2,
+            ),
+            backoff_ms: self.val(
+                "general.backoff_ms",
+                None,
+                "SPEAK_BACKOFF_MS",
+                self.file.general.backoff_ms,
+                250,
+            ),
+            translate_url: self.opt(
+                "general.translate_url",
+                None,
+                "SPEAK_TRANSLATE_URL",
+                self.file.general.translate_url.clone(),
+            ),
+            translate_model: self.opt(
+                "general.translate_model",
+                None,
+                "SPEAK_TRANSLATE_MODEL",
+                self.file.general.translate_model.clone(),
+            ),
         }
     }
 
@@ -678,7 +1092,11 @@ impl Resolver {
         } else {
             Origin::Default
         };
-        self.record("general.config_path", paths::config_file().display().to_string(), origin);
+        self.record(
+            "general.config_path",
+            paths::config_file().display().to_string(),
+            origin,
+        );
     }
 }
 

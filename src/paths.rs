@@ -42,9 +42,13 @@ pub fn default_socket() -> PathBuf {
 }
 
 fn env_path(key: &str) -> Option<PathBuf> {
-    std::env::var_os(key).filter(|s| !s.is_empty()).map(PathBuf::from)
+    std::env::var_os(key)
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
 }
 
 fn base_home() -> PathBuf {
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."))
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
 }
