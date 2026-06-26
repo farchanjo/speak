@@ -40,10 +40,14 @@ Chosen option: "Option A".
 - The `coreaudio` adapter enumerates devices via CoreAudio
   (`kAudioHardwarePropertyDevices`) and exposes them through `speak devices`
   (`--json` for machine consumption).
-- The `AudioSink` port accepts a set of target device IDs. With one target it
-  pins a single `AVAudioEngine` to that `AudioDeviceID`; with many it builds one
-  engine per device (or an aggregate device) and schedules the same decoded
-  `AVAudioPCMBuffer`s on each, so a single decode feeds all outputs.
+- The `AudioSink` port accepts a set of **platform-neutral target device
+  selectors** (device names or opaque identifier strings), keeping the port
+  contract free of any CoreAudio type — `AudioDeviceID` (a CoreAudio `u32`) never
+  crosses the port boundary. The `coreaudio` adapter resolves each selector to its
+  `AudioDeviceID`: with one target it pins a single `AVAudioEngine` to that
+  `AudioDeviceID`; with many it builds one engine per device (or an aggregate
+  device) and schedules the same decoded `AVAudioPCMBuffer`s on each, so a single
+  decode feeds all outputs.
 - Selection is by `--output-device` (repeatable on `say` and `realtime`) or the
   `[audio.output].device` config — which itself accepts either a single device
   name or a **list** of names as the default fan-out set, so the multi-device
