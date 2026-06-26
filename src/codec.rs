@@ -14,8 +14,8 @@ use std::ptr;
 use std::sync::Once;
 
 use anyhow::{anyhow, bail, Context as _, Result};
-use ffmpeg_the_third as ff;
 use ff::ffi;
+use ffmpeg_the_third as ff;
 
 /// Canonical playback format the decoder resamples to. The native CoreAudio
 /// mixer performs the final hardware-rate conversion.
@@ -118,10 +118,13 @@ pub fn rms_s16(samples: &[i16]) -> f64 {
     if samples.is_empty() {
         return 0.0;
     }
-    let sum: f64 = samples.iter().map(|&s| {
-        let v = f64::from(s) / f64::from(i16::MAX);
-        v * v
-    }).sum();
+    let sum: f64 = samples
+        .iter()
+        .map(|&s| {
+            let v = f64::from(s) / f64::from(i16::MAX);
+            v * v
+        })
+        .sum();
     (sum / samples.len() as f64).sqrt()
 }
 
@@ -219,7 +222,10 @@ fn open_mem_input(bytes: Vec<u8>, avio: &mut Avio) -> Result<ff::format::context
         if buffer.is_null() {
             bail!("av_malloc failed");
         }
-        let opaque = Box::into_raw(Box::new(MemSource { data: bytes, pos: 0 }));
+        let opaque = Box::into_raw(Box::new(MemSource {
+            data: bytes,
+            pos: 0,
+        }));
         avio.opaque = opaque;
         let ctx = ffi::avio_alloc_context(
             buffer,
@@ -300,11 +306,18 @@ fn open_audio_decoder(
     // Prefer the best available local decoder (e.g. AudioToolbox `*_at` on
     // macOS) when the accel policy allows; fall back to the default on failure.
     if let Some(codec) = chosen_decoder(&stream) {
-        if let Ok(audio) = fresh_ctx(&stream)?.decoder().open_as(codec).and_then(|o| o.audio()) {
+        if let Ok(audio) = fresh_ctx(&stream)?
+            .decoder()
+            .open_as(codec)
+            .and_then(|o| o.audio())
+        {
             return Ok((index, audio));
         }
     }
-    let decoder = fresh_ctx(&stream)?.decoder().audio().context("open audio decoder")?;
+    let decoder = fresh_ctx(&stream)?
+        .decoder()
+        .audio()
+        .context("open audio decoder")?;
     Ok((index, decoder))
 }
 
@@ -422,7 +435,13 @@ impl Resampler {
             return Err(ff_err(rc)).context("swr_init");
         }
         let _ = in_channels;
-        Ok(Self { ctx, out_fmt, out_channels, out_rate, in_rate })
+        Ok(Self {
+            ctx,
+            out_fmt,
+            out_channels,
+            out_rate,
+            in_rate,
+        })
     }
 
     fn bytes_per_sample(&self) -> usize {
@@ -444,7 +463,13 @@ impl Resampler {
         let frame_bytes = self.out_channels as usize * self.bytes_per_sample();
         let mut buf = vec![0u8; max_out * frame_bytes];
         let planes = [buf.as_mut_ptr()];
-        let got = ffi::swr_convert(self.ctx, planes.as_ptr(), max_out as c_int, input, in_samples);
+        let got = ffi::swr_convert(
+            self.ctx,
+            planes.as_ptr(),
+            max_out as c_int,
+            input,
+            in_samples,
+        );
         if got < 0 {
             return Err(ff_err(got)).context("swr_convert");
         }

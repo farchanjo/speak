@@ -227,17 +227,46 @@ struct VoiceAddArgs {
 
 /// Canonical voice-design tags accepted by the server's `instruct` field.
 const DESIGN_TAGS: &[&str] = &[
-    "male", "female", "child", "teenager", "young adult", "middle-aged", "elderly",
-    "very low pitch", "low pitch", "moderate pitch", "high pitch", "very high pitch", "whisper",
-    "american accent", "australian accent", "british accent", "canadian accent", "chinese accent",
-    "indian accent", "japanese accent", "korean accent", "portuguese accent", "russian accent",
+    "male",
+    "female",
+    "child",
+    "teenager",
+    "young adult",
+    "middle-aged",
+    "elderly",
+    "very low pitch",
+    "low pitch",
+    "moderate pitch",
+    "high pitch",
+    "very high pitch",
+    "whisper",
+    "american accent",
+    "australian accent",
+    "british accent",
+    "canadian accent",
+    "chinese accent",
+    "indian accent",
+    "japanese accent",
+    "korean accent",
+    "portuguese accent",
+    "russian accent",
 ];
 
 /// Keys accepted by `say --set key=value` (pass-through generation params).
 const GEN_PARAM_KEYS: &[&str] = &[
-    "num_step", "steps", "num_steps", "guidance_scale", "t_shift", "layer_penalty_factor",
-    "position_temperature", "class_temperature", "denoise", "preprocess_prompt",
-    "postprocess_output", "audio_chunk_duration", "audio_chunk_threshold",
+    "num_step",
+    "steps",
+    "num_steps",
+    "guidance_scale",
+    "t_shift",
+    "layer_penalty_factor",
+    "position_temperature",
+    "class_temperature",
+    "denoise",
+    "preprocess_prompt",
+    "postprocess_output",
+    "audio_chunk_duration",
+    "audio_chunk_threshold",
 ];
 
 /// OpenAI audio response formats.
@@ -341,9 +370,19 @@ fn cmd_check(cfg: &Config) -> Result<()> {
     println!("os / arch:             {} / {}", report.os, report.arch);
     println!("cpu cores (threading): {}", report.cpu_cores);
     println!("libavcodec:            {}", report.libavcodec);
-    println!("hwdevice types:        {}", list_or(&report.hwdevice_types, "none"));
-    println!("audiotoolbox decoders: {}", list_or(&report.audiotoolbox_decoders, "none"));
-    println!("hwaccel policy:        {} (override: {}=auto|off|<decoder>)", report.policy, accel::ENV_HWACCEL);
+    println!(
+        "hwdevice types:        {}",
+        list_or(&report.hwdevice_types, "none")
+    );
+    println!(
+        "audiotoolbox decoders: {}",
+        list_or(&report.audiotoolbox_decoders, "none")
+    );
+    println!(
+        "hwaccel policy:        {} (override: {}=auto|off|<decoder>)",
+        report.policy,
+        accel::ENV_HWACCEL
+    );
     println!("logs:                  {}", logging::log_dir().display());
     println!(
         "note: audio decode has no GPU/NVENC path (that hardware is server-side); \
@@ -391,7 +430,9 @@ async fn cmd_say(cfg: &Config, globals: &GlobalArgs, args: SayArgs) -> Result<()
     }
     let client = SpeechClient::new(cfg)?;
     let text = resolve_text(&args.text)?;
-    let format = args.format.map_or_else(|| cfg.format.clone(), |f| f.as_str().to_owned());
+    let format = args
+        .format
+        .map_or_else(|| cfg.format.clone(), |f| f.as_str().to_owned());
     let reply = synthesize(&client, cfg, &args, &text, &format).await?;
     if let Some(path) = &args.out {
         tokio::fs::write(path, &reply.bytes).await?;
@@ -450,7 +491,10 @@ fn parse_gen_params(sets: &[String]) -> Result<serde_json::Map<String, serde_jso
             .split_once('=')
             .ok_or_else(|| anyhow::anyhow!("--set expects key=value, got '{entry}'"))?;
         if !GEN_PARAM_KEYS.contains(&key) {
-            bail!("unknown generation param '{key}'; valid keys: {}", GEN_PARAM_KEYS.join(", "));
+            bail!(
+                "unknown generation param '{key}'; valid keys: {}",
+                GEN_PARAM_KEYS.join(", ")
+            );
         }
         map.insert(key.to_owned(), parse_scalar(raw));
     }
@@ -478,7 +522,11 @@ async fn cmd_voices(cfg: &Config, action: VoicesAction) -> Result<()> {
                 println!("(no saved voices)");
             }
             for v in voices {
-                let tag = if v.has_ref_text { "  (has ref_text)" } else { "" };
+                let tag = if v.has_ref_text {
+                    "  (has ref_text)"
+                } else {
+                    ""
+                };
                 println!("{}{tag}", v.name);
             }
         }
@@ -487,7 +535,12 @@ async fn cmd_voices(cfg: &Config, action: VoicesAction) -> Result<()> {
                 .await
                 .with_context(|| format!("reading {}", args.audio.display()))?;
             let msg = client
-                .add_voice(&args.name, bytes, &file_name(&args.audio), args.ref_text.as_deref())
+                .add_voice(
+                    &args.name,
+                    bytes,
+                    &file_name(&args.audio),
+                    args.ref_text.as_deref(),
+                )
                 .await?;
             println!("{}", non_empty(msg, &format!("added voice {}", args.name)));
         }
@@ -532,7 +585,13 @@ async fn cmd_transcribe(cfg: &Config, args: TranscribeArgs) -> Result<()> {
         .await
         .with_context(|| format!("reading {}", args.file.display()))?;
     let text = client
-        .transcribe(bytes, &file_name(&args.file), &cfg.asr_model, args.language.as_deref(), args.format.as_str())
+        .transcribe(
+            bytes,
+            &file_name(&args.file),
+            &cfg.asr_model,
+            args.language.as_deref(),
+            args.format.as_str(),
+        )
         .await?;
     println!("{text}");
     Ok(())
@@ -544,7 +603,12 @@ async fn cmd_translate(cfg: &Config, args: TranslateArgs) -> Result<()> {
         .await
         .with_context(|| format!("reading {}", args.file.display()))?;
     let text = client
-        .translate(bytes, &file_name(&args.file), &cfg.asr_model, args.format.as_str())
+        .translate(
+            bytes,
+            &file_name(&args.file),
+            &cfg.asr_model,
+            args.format.as_str(),
+        )
         .await?;
     println!("{text}");
     Ok(())
@@ -606,14 +670,28 @@ async fn translate_chunk(
 ) -> Result<String> {
     if args.repeat {
         return client
-            .transcribe(wav, "chunk.wav", &cfg.asr_model, args.from.as_deref(), "json")
+            .transcribe(
+                wav,
+                "chunk.wav",
+                &cfg.asr_model,
+                args.from.as_deref(),
+                "json",
+            )
             .await;
     }
     if args.to.eq_ignore_ascii_case("en") {
-        return client.translate(wav, "chunk.wav", &cfg.asr_model, "json").await;
+        return client
+            .translate(wav, "chunk.wav", &cfg.asr_model, "json")
+            .await;
     }
     let src = client
-        .transcribe(wav, "chunk.wav", &cfg.asr_model, args.from.as_deref(), "json")
+        .transcribe(
+            wav,
+            "chunk.wav",
+            &cfg.asr_model,
+            args.from.as_deref(),
+            "json",
+        )
         .await?;
     match (&cfg.translate_url, &cfg.translate_model) {
         (Some(url), Some(model)) => client.chat_translate(url, model, &src, &args.to).await,

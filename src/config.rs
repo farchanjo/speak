@@ -121,9 +121,17 @@ impl Config {
             api_key: cli.api_key.or(file.api_key),
             lang: pick(cli.lang, file.lang, DEFAULT_LANG),
             voice: pick(cli.voice, file.voice, DEFAULT_VOICE),
-            format: pick(std::env::var("SPEAK_FORMAT").ok(), file.format, DEFAULT_FORMAT),
-            tts_model: file.tts_model.unwrap_or_else(|| DEFAULT_TTS_MODEL.to_owned()),
-            asr_model: file.asr_model.unwrap_or_else(|| DEFAULT_ASR_MODEL.to_owned()),
+            format: pick(
+                std::env::var("SPEAK_FORMAT").ok(),
+                file.format,
+                DEFAULT_FORMAT,
+            ),
+            tts_model: file
+                .tts_model
+                .unwrap_or_else(|| DEFAULT_TTS_MODEL.to_owned()),
+            asr_model: file
+                .asr_model
+                .unwrap_or_else(|| DEFAULT_ASR_MODEL.to_owned()),
             translate_url: file.translate_url,
             translate_model: file.translate_model,
         }

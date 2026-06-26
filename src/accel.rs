@@ -12,16 +12,26 @@
 
 use std::ffi::CStr;
 
-use ffmpeg_the_third as ff;
 use ff::ffi;
+use ffmpeg_the_third as ff;
 
 /// Environment variable that overrides hardware-acceleration auto-detect.
 pub const ENV_HWACCEL: &str = "SPEAK_HWACCEL";
 
 /// AudioToolbox decoders worth probing for on macOS.
 const AT_DECODERS: &[&str] = &[
-    "aac_at", "ac3_at", "eac3_at", "alac_at", "mp1_at", "mp2_at", "mp3_at", "amrnb_at",
-    "gsm_ms_at", "ilbc_at", "pcm_mulaw_at", "pcm_alaw_at",
+    "aac_at",
+    "ac3_at",
+    "eac3_at",
+    "alac_at",
+    "mp1_at",
+    "mp2_at",
+    "mp3_at",
+    "amrnb_at",
+    "gsm_ms_at",
+    "ilbc_at",
+    "pcm_mulaw_at",
+    "pcm_alaw_at",
 ];
 
 /// Resolved acceleration policy.
@@ -98,7 +108,12 @@ pub fn probe() -> Report {
 }
 
 fn version_string(packed: u32) -> String {
-    format!("{}.{}.{}", packed >> 16, (packed >> 8) & 0xff, packed & 0xff)
+    format!(
+        "{}.{}.{}",
+        packed >> 16,
+        (packed >> 8) & 0xff,
+        packed & 0xff
+    )
 }
 
 fn hwdevice_types() -> Vec<String> {

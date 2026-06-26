@@ -138,11 +138,19 @@ fn capture_inner(secs: f64) -> Result<Pcm> {
             .lock()
             .map_err(|_| anyhow!("capture buffer lock poisoned"))?
             .clone();
-        Ok(Pcm { samples, sample_rate: rate as u32, channels: channels as u16 })
+        Ok(Pcm {
+            samples,
+            sample_rate: rate as u32,
+            channels: channels as u16,
+        })
     }
 }
 
-unsafe fn install_tap(input: &AVAudioInputNode, format: &AVAudioFormat, store: &Arc<Mutex<Vec<f32>>>) {
+unsafe fn install_tap(
+    input: &AVAudioInputNode,
+    format: &AVAudioFormat,
+    store: &Arc<Mutex<Vec<f32>>>,
+) {
     let sink = Arc::clone(store);
     let block = RcBlock::new(
         move |buf: NonNull<AVAudioPCMBuffer>, _when: NonNull<AVAudioTime>| {

@@ -140,7 +140,11 @@ impl SpeechClient {
     /// `POST /v1/audio/speech` -> encoded audio bytes.
     pub async fn speak(&self, req: &SpeakRequest<'_>) -> Result<AudioReply> {
         let resp = self
-            .auth(self.http.post(self.url("/v1/audio/speech")).json(&req.to_body()))
+            .auth(
+                self.http
+                    .post(self.url("/v1/audio/speech"))
+                    .json(&req.to_body()),
+            )
             .send()
             .await?;
         audio_reply(resp).await
@@ -166,7 +170,9 @@ impl SpeechClient {
             .file_name(filename.to_owned())
             .mime_str("application/octet-stream")
             .context("building voice audio part")?;
-        let mut form = Form::new().text("name", name.to_owned()).part("audio", part);
+        let mut form = Form::new()
+            .text("name", name.to_owned())
+            .part("audio", part);
         if let Some(text) = ref_text {
             form = form.text("ref_text", text.to_owned());
         }
@@ -210,7 +216,11 @@ impl SpeechClient {
             form = form.text("language", lang.to_owned());
         }
         let resp = self
-            .auth(self.http.post(self.url("/v1/audio/transcriptions")).multipart(form))
+            .auth(
+                self.http
+                    .post(self.url("/v1/audio/transcriptions"))
+                    .multipart(form),
+            )
             .send()
             .await?;
         text_reply(resp, format).await
@@ -226,7 +236,11 @@ impl SpeechClient {
     ) -> Result<String> {
         let form = audio_form(audio, filename, model, format)?;
         let resp = self
-            .auth(self.http.post(self.url("/v1/audio/translations")).multipart(form))
+            .auth(
+                self.http
+                    .post(self.url("/v1/audio/translations"))
+                    .multipart(form),
+            )
             .send()
             .await?;
         text_reply(resp, format).await
@@ -278,14 +292,20 @@ async fn audio_reply(resp: reqwest::Response) -> Result<AudioReply> {
             .and_then(|v| v.to_str().ok())
             .map(ToOwned::to_owned)
     };
-    let content_type = header("content-type").unwrap_or_else(|| "application/octet-stream".to_owned());
+    let content_type =
+        header("content-type").unwrap_or_else(|| "application/octet-stream".to_owned());
     let rtf = header("x-rtf");
     let audio_seconds = header("x-audio-seconds");
     let bytes = resp.bytes().await?.to_vec();
     if bytes.is_empty() {
         bail!("server returned empty audio body");
     }
-    Ok(AudioReply { bytes, content_type, rtf, audio_seconds })
+    Ok(AudioReply {
+        bytes,
+        content_type,
+        rtf,
+        audio_seconds,
+    })
 }
 
 async fn text_reply(resp: reqwest::Response, format: &str) -> Result<String> {
