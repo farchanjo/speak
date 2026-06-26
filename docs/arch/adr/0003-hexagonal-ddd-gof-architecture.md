@@ -150,11 +150,20 @@ holds no reusable logic beyond CLI mapping. This makes the inward modules
 configuration catalog's forward-looking value objects be reachable `pub` API
 (rather than bin-private dead code).
 
-The current module layout is still the flat tree (`domain/` holds the
-`VoiceDesign`, `GenParams`, and `RetryPolicy` value objects; the other concerns
-are top-level modules), not yet the full `ports/`–`application/`–`adapters/`
-split described above. That refactor remains tracked in `tasks.md`; this ADR
-section records the lib/bin boundary as the first concrete step toward it.
+The rebuild is landing layer by layer. The pure `domain/` is now populated with
+the value objects described above — `VoiceDesign`, `GenParams`, `RetryPolicy`,
+plus `Language`, `SampleFormat`/`PcmBuffer`, `Voice`/`VoiceClone`/`StandardVoice`/
+`VoiceMode`, `AudioFormat`, `RealtimeMode`, the `SpeechSpec` aggregate (assembled
+through a fluent Builder), and the `DomainError` failure vocabulary — and the
+`ports/` driven-port traits (`Synthesizer`, `Transcriber`, `Translator`,
+`AudioSink`, `AudioSource`, `AudioDecoder`, `AudioEncoder`, `ConfigProvider`,
+`VoiceRepository`, `RealtimeStream`, `ServerProbe`, and the `RetryPolicy`
+Strategy) now exist and compile clippy-clean, referencing only domain types
+(plus the still-flat resolved `config::Config` POD, which moves inward with the
+config adapter). The `application/` use cases and the `adapters/*` split remain
+the flat top-level modules for now; that move is still tracked in `tasks.md`.
+This ADR section records the lib/bin boundary and the ports + domain landing as
+the first concrete steps toward the full layout.
 
 The Validate phase added a real test suite exercising this core: domain
 value-object units (voice-design tag validation, gen-param keys, retry/backoff

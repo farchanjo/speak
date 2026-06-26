@@ -20,6 +20,7 @@ pub mod daemon;
 pub mod domain;
 pub mod logging;
 pub mod paths;
+pub mod ports;
 pub mod transport;
 
 #[cfg(target_os = "macos")]

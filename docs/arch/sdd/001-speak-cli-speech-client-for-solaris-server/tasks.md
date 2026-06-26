@@ -68,16 +68,31 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
 
 ## Ports (traits)
 
-- [ ] T020 `[ports]` `Synthesizer`, `Transcriber`, `Translator`.
-- [ ] T021 `[ports]` `AudioSink` (single + multi-device), `AudioSource`,
+- [x] T020 `[ports]` `Synthesizer`, `Transcriber`, `Translator`.
+  (`src/ports/{synthesizer,transcriber,translator}.rs`: `Synthesizer` consumes
+  the `SpeechSpec` aggregate and returns `SynthesizedAudio` (bytes + `X-RTF`/
+  `X-Audio-Seconds`); `Translator` is the two-Strategy port. Async ports; no
+  framework type in any signature.)
+- [x] T021 `[ports]` `AudioSink` (single + multi-device), `AudioSource`,
   `AudioDecoder`, `AudioEncoder` (WAV/FLAC record output).
-- [ ] T022 `[ports]` `ConfigProvider`, `VoiceRepository`, `RealtimeStream`, and
+  (`src/ports/audio.rs`: `AudioSink` with `play`/`play_to` fan-out (FR-11) +
+  `AudioDevice` enumeration, `AudioSource` capture + input enumeration;
+  `src/ports/codec.rs`: `AudioDecoder` (decode + resample) and `AudioEncoder`
+  (`RecordFormat::Wav|Flac`).)
+- [x] T022 `[ports]` `ConfigProvider`, `VoiceRepository`, `RealtimeStream`, and
   `ServerProbe` (the capability/health port covering `GET /health`,
   `GET /v1/models`, and the runtime `POST /v1/realtime/translate` probe of
   FR-14 / ADR-0004 — the network calls behind `speak health`/`check` and the
   SSE-vs-chunked selection).
-- [ ] T023 `[ports]` `RetryPolicy` port (the resilience Strategy the composition
+  (`src/ports/{config,voice,realtime,probe}.rs`: `VoiceRepository` (add/list/rm),
+  `RealtimeStream` yielding a typed `RealtimeFrame`, and `ServerProbe`
+  (health/models/supports_realtime). `ConfigProvider` returns the resolved POD
+  `config::Config`, which moves inward when the config adapter lands.)
+- [x] T023 `[ports]` `RetryPolicy` port (the resilience Strategy the composition
   root injects around every network call) (FR-17 / ADR-0004).
+  (`src/ports/retry.rs`: the Strategy port with a blanket impl for the pure
+  `domain::retry::RetryPolicy` value object, exercised via dynamic dispatch in a
+  unit test.)
 
 ## Driven adapters
 
