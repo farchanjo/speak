@@ -98,9 +98,10 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   the `[http]` section (`translate_url`/`translate_model`/`save_dir`), each with
   its `SPEAK_*` env override and code default — no hardcoded tunables (FR-18).
   During this rebuild, rename the `[tts.gen]` `gen` field to the
-  `domain::GenParams` value object and bump `edition = "2024"`/`resolver = "3"`
-  (the deferral owner, ADR-0008): run `cargo fix --edition`, verify MSRV 1.85
-  and a green build/clippy.
+  `domain::GenParams` value object and bump `edition = "2024"`/`resolver = "3"`/
+  `rust-version = "1.95"`, adding a `rust-toolchain.toml` (`channel = "1.95"`)
+  (the deferral owner, ADR-0008): run `cargo fix --edition`, verify MSRV 1.95
+  (`cargo msrv verify`) and a green build/clippy.
   (Partial: the `[retry]` section now resolves into `domain::retry::RetryPolicy`
   with full `SPEAK_RETRY_*` overrides and appears in `config show`; the layered
   tree move, the `[http]` split, and the edition-2024 bump remain pending.)

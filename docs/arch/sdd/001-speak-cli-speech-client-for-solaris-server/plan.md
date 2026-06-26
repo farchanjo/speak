@@ -12,11 +12,13 @@ DDD + named GoF patterns (ADR-0003).
 
 ## Technical Approach
 
-- Rust 2021 edition, MSRV 1.85; async via **tokio**. Staying on edition 2021
-  (rather than the toolchain-standard 2024) is a recorded, time-bounded
-  deferral — the `[tts.gen]` `gen` identifier collides with the 2024 reserved
-  keyword; the migration is owned by the `adapters/config` rebuild (T037). See
-  ADR-0008.
+- Rust: currently edition 2021, `rust-version = 1.85`; the **required target** is
+  edition 2024 / resolver 3 / `rust-version = 1.95` with a pinned
+  `rust-toolchain.toml` (`channel = 1.95`). async via **tokio**. Staying on
+  edition 2021 (rather than the toolchain-standard 2024) is a recorded,
+  time-bounded deferral — the `[tts.gen]` `gen` identifier collides with the
+  2024 reserved keyword; the migration (edition + MSRV bump + toolchain pin) is
+  owned by the `adapters/config` rebuild (T037). See ADR-0008.
 - HTTP via **async-openai** 0.41.x (`OpenAIConfig::with_api_base(host)
   .with_api_key(key)`): typed requests for standard endpoints, `_byot` methods
   for the extended speech request (voice-design `instruct`, `voice=clone`,

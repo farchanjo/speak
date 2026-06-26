@@ -10,9 +10,11 @@ informed: []
 
 ## Context and Problem Statement
 
-The project's Rust playbook standard targets `edition = "2024"` / `resolver =
-"3"` on toolchain 1.95 (edition 2024 is stable since 1.85, the declared MSRV).
-`Cargo.toml` and the plan currently declare `edition = "2021"`. The divergence
+The project's required Rust target is `edition = "2024"` / `resolver = "3"` with
+`rust-version = "1.95"` and a pinned `rust-toolchain.toml` (`channel = "1.95"`).
+Edition 2024 itself is stable since 1.85, but the project pins MSRV 1.95 to match
+the sole local/CI toolchain (rustc/cargo 1.95.0). `Cargo.toml` and the plan
+currently declare `edition = "2021"` / `rust-version = "1.85"`. The divergence
 was unacknowledged, so a reviewer cannot tell whether 2021 is intentional or an
 oversight. We must either align to 2024 now or record an explicit, time-bounded
 deferral.
@@ -48,7 +50,8 @@ Migration trigger: edition 2024 / resolver 3 is adopted as part of the
 `adapters/config` rebuild (T037), where the `gen` field becomes the
 `domain::GenParams` value object and the raw-identifier hazard disappears. At
 that point run `cargo fix --edition`, bump `edition = "2024"` + `resolver =
-"3"`, and verify with `cargo msrv verify` (MSRV stays 1.85) and a green
+"3"` + `rust-version = "1.95"`, add a `rust-toolchain.toml` (`channel =
+"1.95"`), and verify with `cargo msrv verify` (MSRV 1.95) and a green
 `cargo build --release` + `cargo clippy --all-targets -- -D warnings`.
 
 ### Consequences
