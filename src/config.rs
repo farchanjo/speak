@@ -1177,3 +1177,229 @@ impl Resolver {
 pub fn default_file_toml() -> String {
     include_str!("config_template.toml").to_owned()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testenv::ENV_LOCK;
+
+    /// Run `body` with `name` set to `value`, restoring the prior value after.
+    fn with_env<T>(name: &str, value: &str, body: impl FnOnce() -> T) -> T {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var(name).ok();
+        std::env::set_var(name, value);
+        let out = body();
+        match prev {
+            Some(v) => std::env::set_var(name, v),
+            None => std::env::remove_var(name),
+        }
+        out
+    }
+
+    /// Run `body` with `name` guaranteed unset, restoring the prior value after.
+    fn without_env<T>(name: &str, body: impl FnOnce() -> T) -> T {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var(name).ok();
+        std::env::remove_var(name);
+        let out = body();
+        if let Some(v) = prev {
+            std::env::set_var(name, v);
+        }
+        out
+    }
+
+    // ── precedence engine: flag > env > toml > default ────────────────────
+
+    #[test]
+    fn flag_beats_everything() {
+        // A unique env name keeps this deterministic regardless of ambient env.
+        let (v, o) = pick_req(
+            Some("flagv".to_owned()),
+            "SPEAK_TEST_UNSET_A",
+            Some("tomlv".to_owned()),
+            "def".to_owned(),
+        );
+        assert_eq!(o, Origin::Flag);
+        assert_eq!(v, "flagv");
+    }
+
+    #[test]
+    fn env_beats_toml_and_default() {
+        with_env("SPEAK_TEST_PICK_ENV", "envv", || {
+            let (v, o) = pick_req(
+                None::<String>,
+                "SPEAK_TEST_PICK_ENV",
+                Some("t".to_owned()),
+                "d".to_owned(),
+            );
+            assert_eq!(o, Origin::Env);
+            assert_eq!(v, "envv");
+        });
+    }
+
+    #[test]
+    fn toml_beats_default_when_no_flag_or_env() {
+        without_env("SPEAK_TEST_UNSET_B", || {
+            let (v, o) = pick_req(
+                None,
+                "SPEAK_TEST_UNSET_B",
+                Some("tomlv".to_owned()),
+                "def".to_owned(),
+            );
+            assert_eq!(o, Origin::Toml);
+            assert_eq!(v, "tomlv");
+        });
+    }
+
+    #[test]
+    fn default_when_nothing_else_present() {
+        without_env("SPEAK_TEST_UNSET_C", || {
+            let (v, o) = pick_req(None, "SPEAK_TEST_UNSET_C", None, "def".to_owned());
+            assert_eq!(o, Origin::Default);
+            assert_eq!(v, "def");
+        });
+    }
+
+    #[test]
+    fn opt_default_origin_is_default_when_absent() {
+        without_env("SPEAK_TEST_UNSET_D", || {
+            let (v, o) = pick_opt::<String>(None, "SPEAK_TEST_UNSET_D", None);
+            assert_eq!(v, None);
+            assert_eq!(o, Origin::Default);
+        });
+    }
+
+    #[test]
+    fn opt_env_parses_typed_value() {
+        with_env("SPEAK_TEST_PICK_OPT", "5", || {
+            let (v, o) = pick_opt::<u32>(None, "SPEAK_TEST_PICK_OPT", Some(9));
+            assert_eq!(v, Some(5));
+            assert_eq!(o, Origin::Env);
+        });
+    }
+
+    #[test]
+    fn empty_env_is_ignored_and_falls_through_to_toml() {
+        with_env("SPEAK_TEST_EMPTY", "", || {
+            let (v, o) = pick_req(
+                None,
+                "SPEAK_TEST_EMPTY",
+                Some("tomlv".to_owned()),
+                "def".to_owned(),
+            );
+            assert_eq!(o, Origin::Toml);
+            assert_eq!(v, "tomlv");
+        });
+    }
+
+    // ── resolver pipeline records origin end-to-end ───────────────────────
+
+    /// Find a recorded entry by key.
+    fn entry<'a>(cfg: &'a Config, key: &str) -> &'a (String, String, Origin) {
+        cfg.entries()
+            .iter()
+            .find(|(k, ..)| k == key)
+            .unwrap_or_else(|| panic!("no entry {key}"))
+    }
+
+    #[test]
+    fn resolver_records_toml_origin_for_host() {
+        without_env("SPEAK_HOST", || {
+            let file = FileConfig {
+                server: FileServer {
+                    host: Some("http://toml-host:1".into()),
+                    ..FileServer::default()
+                },
+                ..FileConfig::default()
+            };
+            let cfg = Resolver::new(GlobalFlags::default(), file)
+                .finish()
+                .unwrap();
+            let (_, value, origin) = entry(&cfg, "server.host");
+            assert_eq!(value, "http://toml-host:1");
+            assert_eq!(*origin, Origin::Toml);
+        });
+    }
+
+    #[test]
+    fn resolver_flag_overrides_toml_for_host() {
+        without_env("SPEAK_HOST", || {
+            let file = FileConfig {
+                server: FileServer {
+                    host: Some("http://toml-host:1".into()),
+                    ..FileServer::default()
+                },
+                ..FileConfig::default()
+            };
+            let flags = GlobalFlags {
+                host: Some("http://flag-host:2".into()),
+                ..GlobalFlags::default()
+            };
+            let cfg = Resolver::new(flags, file).finish().unwrap();
+            let (_, value, origin) = entry(&cfg, "server.host");
+            assert_eq!(value, "http://flag-host:2");
+            assert_eq!(*origin, Origin::Flag);
+        });
+    }
+
+    #[test]
+    fn resolver_default_host_when_unset() {
+        without_env("SPEAK_HOST", || {
+            let cfg = Resolver::new(GlobalFlags::default(), FileConfig::default())
+                .finish()
+                .unwrap();
+            let (_, value, origin) = entry(&cfg, "server.host");
+            assert_eq!(value, DEFAULT_HOST);
+            assert_eq!(*origin, Origin::Default);
+        });
+    }
+
+    #[test]
+    fn resolver_env_overrides_toml_for_retry_max() {
+        // FR: SPEAK_RETRY_MAX=5 surfaces in `config show` with origin env.
+        with_env("SPEAK_RETRY_MAX", "5", || {
+            let cfg = Resolver::new(GlobalFlags::default(), FileConfig::default())
+                .finish()
+                .unwrap();
+            let (_, value, origin) = entry(&cfg, "retry.max_retries");
+            assert_eq!(value, "5");
+            assert_eq!(*origin, Origin::Env);
+            assert_eq!(cfg.retry.policy.max_retries, 5);
+        });
+    }
+
+    #[test]
+    fn api_key_is_masked_in_entries() {
+        without_env("SPEAK_API_KEY", || {
+            let file = FileConfig {
+                server: FileServer {
+                    api_key: Some("super-secret".into()),
+                    ..FileServer::default()
+                },
+                ..FileConfig::default()
+            };
+            let cfg = Resolver::new(GlobalFlags::default(), file)
+                .finish()
+                .unwrap();
+            let (_, value, origin) = entry(&cfg, "server.api_key");
+            assert_eq!(value, "***");
+            assert_eq!(*origin, Origin::Toml);
+            assert_eq!(cfg.server.api_key.as_deref(), Some("super-secret"));
+        });
+    }
+
+    #[test]
+    fn origin_display_strings() {
+        assert_eq!(Origin::Flag.to_string(), "flag");
+        assert_eq!(Origin::Env.to_string(), "env");
+        assert_eq!(Origin::Toml.to_string(), "toml");
+        assert_eq!(Origin::Default.to_string(), "default");
+    }
+
+    #[test]
+    fn default_user_agent_carries_crate_version() {
+        let ua = default_user_agent();
+        assert!(ua.starts_with("speak/"), "{ua}");
+        assert!(ua.contains(env!("CARGO_PKG_VERSION")));
+    }
+}
