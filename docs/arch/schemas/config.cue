@@ -106,7 +106,13 @@ package schemas
 	speed?:    #Speed
 	instruct?: string
 	native:    bool | *false
-	gen:       #GenParams
+	// TOML key stays `gen` (the `[tts.gen]` section); the Rust projection renames
+	// the struct field to `gen_params` (serde `rename = "gen"`) because `gen` is a
+	// reserved keyword in Rust edition 2024 — see ADR-0008 (owned by T037, the
+	// edition-2024 + `adapters/config` rebuild). The schema keeps the literal key
+	// `gen` so the catalog mirrors the user-facing TOML, and the rename hazard is
+	// recorded here rather than left implicit.
+	gen: #GenParams
 }
 
 // [asr].
