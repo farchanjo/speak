@@ -50,13 +50,13 @@ flowchart TD
       DSOCK[src/adapters/daemon - unix socket]
     end
     subgraph app [Application]
-      UC[use cases: say, transcribe, translate, record, voices, realtime]
+      UC[use cases: say, transcribe, translate, record, voices, realtime, check/health]
     end
     subgraph dom [Domain - pure, zero IO]
-      VO[Voice, VoiceDesign 23-tag VO, VoiceClone, PcmBuffer, SampleFormat, SpeechSpec, GenParams, Language, errors]
+      VO[Voice, VoiceDesign 23-tag VO, VoiceClone, StandardVoice, PcmBuffer, SampleFormat, SpeechSpec, GenParams, Language, RetryPolicy, errors]
     end
     subgraph ports [Ports - traits]
-      P[Synthesizer, Transcriber, Translator, AudioSink, AudioSource, AudioDecoder, ConfigProvider, VoiceRepository, RealtimeStream]
+      P[Synthesizer, Transcriber, Translator, AudioSink, AudioSource, AudioDecoder, AudioEncoder, ConfigProvider, VoiceRepository, RealtimeStream, ServerProbe, RetryPolicy]
     end
     subgraph driven [Driven adapters]
       OA[openai - async-openai + _byot]
@@ -64,6 +64,8 @@ flowchart TD
       LA[libav - ffmpeg-the-third]
       CFG[config - toml + env]
       SSEA[sse - realtime parser]
+      CMT[chatmt - arbitrary-target Translator]
+      RTY[retry - port-preserving decorators]
     end
     CLI --> UC
     DSOCK --> UC
@@ -74,28 +76,40 @@ flowchart TD
     LA -.implements.-> P
     CFG -.implements.-> P
     SSEA -.implements.-> P
+    CMT -.implements.-> P
+    RTY -.implements.-> P
     ROOT[src/main.rs composition root - Factory] --> UC
     ROOT --> OA
     ROOT --> CA
     ROOT --> LA
     ROOT --> CFG
+    ROOT --> SSEA
+    ROOT --> CMT
+    ROOT --> RTY
 ```
 
 ### Layers and modules
 
 - **domain** (`src/domain/`) — `Voice`, `VoiceDesign` (canonical 23-tag Value
-  Object with validation), `VoiceClone`, `PcmBuffer`, `SampleFormat`,
-  `SpeechSpec`, `GenParams`, `Language`, `RetryPolicy` (exponential-backoff +
-  jitter resilience VO with its `RetryOn` classification), domain `errors`.
+  Object with validation), `VoiceClone`, `StandardVoice` (named built-in voice,
+  the third `VoiceMode` arm reconciling the `[tts].voice`/`alloy` default with
+  saved-clone lookup), `PcmBuffer`, `SampleFormat`, `SpeechSpec`, `GenParams`,
+  `Language`, `RetryPolicy` (exponential-backoff + jitter resilience VO with its
+  `RetryOn` classification and an injected RNG so jitter stays pure/testable),
+  domain `errors`.
   Pure; no `tokio`, `reqwest`, `objc2`, or `ffmpeg` types.
 - **ports** (`src/ports/`) — `Synthesizer`, `Transcriber`, `Translator`,
   `AudioSink`, `AudioSource`, `AudioDecoder`, `AudioEncoder` (WAV/FLAC record
-  output), `ConfigProvider`, `VoiceRepository`, `RealtimeStream`, and
-  `RetryPolicy` (resilience Strategy wrapping every network call) traits.
+  output), `ConfigProvider`, `VoiceRepository`, `RealtimeStream`, `ServerProbe`
+  (the capability/health port for `GET /health`, `GET /v1/models`, and the
+  runtime `POST /v1/realtime/translate` probe of FR-14), and `RetryPolicy` (the
+  resilience Strategy the retry decorators consult) traits.
 - **application** (`src/application/`) — use cases `say`, `transcribe`,
-  `translate`, `record`, `voices`, `realtime`; orchestrate ports; no framework
-  types leak across the boundary. An application **Facade** exposes one surface
-  to both CLI and daemon.
+  `translate`, `record`, `voices`, `realtime`, `check`/`health`; orchestrate
+  ports; no framework types leak across the boundary. The `check`/`health` use
+  case drives the `ServerProbe` port plus the `accel` cross-cutting probe;
+  `config`/`devices`/`completions` are thin CLI adapters with no dedicated use
+  case. An application **Facade** exposes one surface to both CLI and daemon.
 - **adapters** (`src/adapters/`):
   - `openai` — async-openai client; typed + `_byot`; implements `Synthesizer`,
     `Transcriber`, `Translator`, `VoiceRepository`.
@@ -113,10 +127,14 @@ flowchart TD
     `[http].translate_url` endpoint (`[http].translate_model`), reusing the warm
     pool; selected only when `--to` is non-English and `translate_url` is set
     (ADR-0004). The default English path stays on the `openai` adapter.
-  - `retry` — a transport-agnostic decorator implementing the `RetryPolicy`
-    port (bounded exponential backoff + jitter from `[retry]`, `retry_on`
-    classification); it wraps every driven network adapter (`openai`, `chatmt`,
-    `daemon` forward, `sse` reconnect) at the composition root (ADR-0004).
+  - `retry` — transport-agnostic, **port-preserving** decorators: one generic
+    wrapper per driven port (`Synthesizer`, `Transcriber`, `Translator`,
+    `VoiceRepository`, `RealtimeStream`, `ServerProbe`, daemon forward) that
+    **implements the same port it wraps** and consults the `RetryPolicy`
+    Strategy (bounded exponential backoff + jitter from `[retry]`, `retry_on`
+    classification). The decorator is NOT the `RetryPolicy` port; it is
+    substitutable for the concrete adapter the use case holds, and is wired at
+    the composition root (ADR-0004).
   - `config` — TOML + env + default precedence; implements `ConfigProvider`.
   - `daemon` — Unix-socket driving adapter (length-prefixed framing, SSE
     pass-through) reusing the same use cases (ADR-0005).
@@ -166,7 +184,8 @@ frames drive the loop directly; otherwise the chunked path runs. Loops to Ctrl-C
 ## Companion Artifacts
 
 - `docs/arch/schemas/*.cue` — domain value objects (`SpeechSpec` aggregate,
-  `VoiceMode`/`Design`/`Clone`, `Voice`, `GenParams`, `PcmBuffer`, `Language`,
+  `VoiceMode`/`Design`/`Clone`/`StandardVoice`, `Voice`, `GenParams`,
+  `PcmBuffer`, `Language`,
   `SampleFormat`, `RealtimeMode`, `ConfigOrigin`, `RetryPolicy`/`RetryOn`) and
   the full `#Config` catalog mirroring ADR-0006 (`config.cue`, including the
   `#Retry` and `#Http` sections); `RealtimeFrame` SSE DTO included.

@@ -59,31 +59,50 @@ flowchart TD
     LIBAV[adapters/libav] -.implements.-> PORTS
     CONFIG[adapters/config] -.implements.-> PORTS
     SSE[adapters/sse] -.implements.-> PORTS
+    CHATMT[adapters/chatmt] -.implements.-> PORTS
+    RETRY[adapters/retry - port-preserving decorators] -.implements.-> PORTS
     MAIN[main.rs composition root - Factory] --> APP
     MAIN --> OPENAI
     MAIN --> COREAUDIO
     MAIN --> LIBAV
+    MAIN --> CONFIG
+    MAIN --> SSE
+    MAIN --> CHATMT
+    MAIN --> RETRY
 ```
 
+The root constructs every driven adapter (`openai`, `coreaudio`, `libav`,
+`config`, `sse`, `chatmt`) and wraps each network adapter in its port-preserving
+`retry` decorator before injecting it into the use cases; the diagram wires
+`MAIN` to all of them so the Factory's object graph is fully represented.
+
 - `src/domain/` — pure, zero I/O: `Voice`, `VoiceDesign` (the 23-tag canonical
-  Value Object), `VoiceClone`, `PcmBuffer`, `SampleFormat`, `SpeechSpec`,
+  Value Object), `VoiceClone`, `StandardVoice` (a named built-in voice such as
+  the `[tts].voice` default `alloy`, distinct from a saved clone — the third
+  `VoiceMode` arm), `PcmBuffer`, `SampleFormat`, `SpeechSpec`,
   `GenParams`, `Language`, `RetryPolicy` (the exponential-backoff + jitter
   resilience value object, with its `RetryOn` classification), and domain
   `errors`. No `tokio`, `reqwest`, `objc2`, or `ffmpeg` types appear here.
 - `src/ports/` — driven-port traits: `Synthesizer`, `Transcriber`,
   `Translator`, `AudioSink`, `AudioSource`, `AudioDecoder`, `AudioEncoder`
   (WAV/FLAC record output), `ConfigProvider`, `VoiceRepository`,
-  `RealtimeStream`, and `RetryPolicy` (the resilience Strategy port that wraps
-  every network call; ADR-0004).
+  `RealtimeStream`, `ServerProbe` (the capability/health port for `GET /health`,
+  `GET /v1/models`, and the runtime `POST /v1/realtime/translate` probe of
+  FR-14 / ADR-0004), and `RetryPolicy` (the resilience Strategy port consulted
+  by the retry decorators; ADR-0004).
 - `src/application/` — use cases (`say`, `transcribe`, `translate`, `record`,
-  `voices`, `realtime`) that orchestrate ports; no framework type leaks across
-  the application boundary.
+  `voices`, `realtime`, `check`/`health`) that orchestrate ports; no framework
+  type leaks across the application boundary. The `check`/`health` use case
+  drives the `ServerProbe` port and the `accel` cross-cutting probe;
+  `config`/`devices`/`completions` stay thin CLI adapters with no dedicated use
+  case.
 - `src/adapters/` — `openai` (async-openai + `_byot`), `coreaudio`
   (`AVAudioEngine` output + mixer + capture + device enumeration + multi-output),
   `libav` (ffmpeg-the-third decode/resample + WAV/FLAC record encode), `chatmt`
   (arbitrary-target `Translator` Strategy over `[http].translate_url`),
   `config` (TOML + env + default), `daemon` (Unix socket + SSE forward), `sse`
-  (realtime stream parser).
+  (realtime stream parser), `retry` (port-preserving decorators that wrap every
+  network adapter and consult the `RetryPolicy` Strategy; ADR-0004).
 - `src/cli/` — driving adapter (clap) that maps arguments to use-case inputs and
   contains no business logic.
 - `src/main.rs` — composition root that wires adapters into use cases (DI).
