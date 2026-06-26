@@ -46,6 +46,19 @@ Chosen option: "Option A".
 
 - Standard endpoints (`/v1/models`, `/v1/audio/transcriptions`,
   `/v1/audio/translations`, voice CRUD) use typed requests.
+- The single CANONICAL generation key for step count is `num_step` (the CLI
+  accepts `steps` as an alias that normalizes to `num_step`). `num_steps` is
+  **not** a valid key and is rejected by the request Builder's field guard.
+- The `Translator` port has two interchangeable **Strategy** implementations
+  (FR-7 / FR-8): (a) the default OpenAI-audio strategy, implemented by the
+  `openai` adapter over `/v1/audio/translations`, which translates audio to
+  English via Whisper; and (b) a chat-MT strategy for an arbitrary `--to`
+  target, implemented by a separate `chatmt` adapter that POSTs to the
+  non-OpenAI `[general].translate_url` endpoint with `[general].translate_model`
+  using the same warm `reqwest` pool. The composition root selects the strategy:
+  English target or absent `translate_url` -> Whisper translate; non-English
+  target with `translate_url` set -> chat-MT; non-English target without
+  `translate_url` -> degrade to the source transcript with a clear notice.
 - The extended `/v1/audio/speech` request (voice-design `instruct`, `language`,
   `voice=clone`, `ref_text`, and all generation parameters) is sent through the
   `_byot` methods with a `speak`-owned serde type built by a fluent Builder.
@@ -54,8 +67,15 @@ Chosen option: "Option A".
   `{type: transcript|translation|audio|done|error, text?, audio_b64?, format?,
   seq?}` via `eventsource-stream`, decoded into a typed `RealtimeFrame` enum in
   the `adapters/sse` module behind the `RealtimeStream` port. The feature is
-  flag-guarded: when the endpoint is unavailable the realtime use case falls
-  back to the chunked ASR -> MT -> TTS pipeline.
+  flag-guarded at **runtime**, not compile time: the realtime use case probes
+  the server (a `POST /v1/realtime/translate` capability check, also surfaced by
+  `/v1/models`) and, when the endpoint answers, consumes SSE frames; when it is
+  absent or errors, it falls back to the chunked ASR -> MT -> TTS pipeline. A
+  runtime probe (rather than a compile-time Cargo feature) is chosen so one
+  prebuilt binary works against servers with or without the endpoint; the
+  `eventsource-stream` dependency is always linked. An optional `realtime-sse`
+  Cargo feature may gate the parser out for size-constrained builds, but the
+  default binary always carries it and decides at runtime.
 - A single `async-openai` client (warm keep-alive, tuned reqwest pool) is built
   once in the composition root and shared by every adapter call.
 

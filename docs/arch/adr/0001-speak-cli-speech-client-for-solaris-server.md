@@ -50,6 +50,13 @@ no-exec rule and routes device I/O through the native OS mixer.
   `AVAudioPCMBuffer`s. Capture: `AVAudioEngine.inputNode` with
   `installTapOnBus`, resampled by libav to 16 kHz mono, muxed to an in-memory
   WAV (hand-written RIFF/WAVE header) and POSTed to Whisper.
+- Recording output encode (`speak record --format wav|flac`, FR-9): captured
+  PCM is written either as the hand-muxed in-memory WAV (no encoder) or, for
+  `--format flac`, encoded with the libavcodec FLAC encoder through a custom
+  in-memory AVIO **write** callback (`avio_alloc_context` write side, mirror of
+  the decode read callback) — still no temp files and no exec. The libav
+  adapter therefore covers both the decode/resample direction and this
+  encode/mux direction.
 - Non-macOS: device I/O returns a clear error; file commands still work.
 
 ### Consequences

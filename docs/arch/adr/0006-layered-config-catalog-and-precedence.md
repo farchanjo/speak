@@ -54,14 +54,24 @@ floor. The file lives at `~/.speak/config.toml`, migrating from
   `class_temperature`, `denoise`, `preprocess_prompt`, `postprocess_output`,
   `audio_chunk_duration`, `audio_chunk_threshold`.
 - `[asr]` — `model` (`whisper-1`), `language` (`auto`), `format` (`text`).
-- `[audio.output]` — `device`, `volume` (drives `mainMixerNode.outputVolume`),
-  `rate`, `sample_rate`, `channels`, `buffer_frames`, `play`.
-- `[audio.input]` — `device`, `sample_rate` (`16000`), `channels` (`1`),
-  `chunk_secs` (`5`), `silence_threshold_db` (`-40`), `vad`.
+- `[audio.output]` — `device` (a device **name**, resolved to an
+  `AudioDeviceID`), `volume` (drives `mainMixerNode.outputVolume`), `rate`,
+  `sample_rate`, `channels`, `buffer_frames`, `play`. `rate` is the playback
+  device's nominal hardware sample rate requested from CoreAudio (the output
+  node rate); `sample_rate` is the PCM sample rate the libav resampler targets
+  before feeding the mixer. They coincide unless the device runs at a rate other
+  than the decode target, in which case CoreAudio resamples `sample_rate` ->
+  `rate` at the output node.
+- `[audio.input]` — `device` (a device **name**, same form as
+  `[audio.output].device` — never a numeric index), `sample_rate` (`16000`),
+  `channels` (`1`), `chunk_secs` (`5`), `silence_threshold_db` (`-40`), `vad`.
 - `[ffmpeg]` — `threads`, `resampler`, `resample_quality`, `dither`,
   `sample_fmt`, `log_level`, `extra_filters`.
 - `[realtime]` — `from`, `to`, `speak`, `chunk_secs`, `translate`
-  (`SPEAK_RT_TRANSLATE`).
+  (`SPEAK_RT_TRANSLATE`). `translate` and `speak` are **distinct** keys, not
+  aliases: `translate` selects translate-vs-passthrough mode (the `--translate`
+  / `--no-translate` flag, default from `SPEAK_RT_TRANSLATE`), while `speak`
+  toggles whether the produced text is spoken back through TTS.
 - `[daemon]` — `socket` (`~/.speak/speak.sock`), `idle_timeout`, `autostart`.
 - `[general]` — `quiet`, `json`, `color`, `temp_dir`, `log`, `config_path`;
   plus `translate_url`, `translate_model`, retry/backoff, `save_dir`.
@@ -73,3 +83,7 @@ floor. The file lives at `~/.speak/config.toml`, migrating from
   rest of the system unaware of TOML/env mechanics.
 - Bad: a large catalog to keep in sync across the schema, the template, and
   `config show`; the cross-consistency validator and CUE schema must mirror it.
+  The mirror lives in `docs/arch/schemas/config.cue` (`#Config` and the
+  `#Server`/`#Tts`/`#Asr`/`#AudioOutput`/`#AudioInput`/`#Ffmpeg`/`#Realtime`/
+  `#Daemon`/`#General` section types, plus the `#GenParams` value object for
+  `[tts.gen]`); changes to this catalog must update that file in the same change.

@@ -41,6 +41,15 @@ Chosen option: "Option A".
   and `status` control a running instance. The socket path defaults to
   `~/.speak/speak.sock` (config `[daemon].socket`), with `idle_timeout` and an
   `autostart` toggle.
+- `[daemon].autostart` semantics: when `true`, a one-shot CLI invocation that
+  finds no daemon on the socket spawns the daemon binary itself (detached,
+  `speak daemon`), waits briefly for the socket to appear, and then forwards
+  the request to it — so the first command pays the launch cost and every later
+  command rides the warm client. When `false` (the default), the same
+  invocation skips launching and simply runs the one-shot in-process client.
+  `autostart` only affects whether the daemon is auto-launched; it never
+  changes the request result, and `idle_timeout` later reaps an auto-started
+  daemon after inactivity.
 - Normal CLI commands attempt to connect to the socket and forward the
   use-case request using length-prefixed framing; realtime SSE frames are
   forwarded frame-by-frame so the foreground sees live output. If the socket is

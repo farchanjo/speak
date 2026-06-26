@@ -70,15 +70,18 @@ flowchart TD
   `GenParams`, `Language`, and domain `errors`. No `tokio`, `reqwest`,
   `objc2`, or `ffmpeg` types appear here.
 - `src/ports/` — driven-port traits: `Synthesizer`, `Transcriber`,
-  `Translator`, `AudioSink`, `AudioSource`, `AudioDecoder`, `ConfigProvider`,
-  `VoiceRepository`, `RealtimeStream`.
+  `Translator`, `AudioSink`, `AudioSource`, `AudioDecoder`, `AudioEncoder`
+  (WAV/FLAC record output), `ConfigProvider`, `VoiceRepository`,
+  `RealtimeStream`.
 - `src/application/` — use cases (`say`, `transcribe`, `translate`, `record`,
   `voices`, `realtime`) that orchestrate ports; no framework type leaks across
   the application boundary.
 - `src/adapters/` — `openai` (async-openai + `_byot`), `coreaudio`
   (`AVAudioEngine` output + mixer + capture + device enumeration + multi-output),
-  `libav` (ffmpeg-the-third decode/resample), `config` (TOML + env + default),
-  `daemon` (Unix socket + SSE forward), `sse` (realtime stream parser).
+  `libav` (ffmpeg-the-third decode/resample + WAV/FLAC record encode), `chatmt`
+  (arbitrary-target `Translator` Strategy over `[general].translate_url`),
+  `config` (TOML + env + default), `daemon` (Unix socket + SSE forward), `sse`
+  (realtime stream parser).
 - `src/cli/` — driving adapter (clap) that maps arguments to use-case inputs and
   contains no business logic.
 - `src/main.rs` — composition root that wires adapters into use cases (DI).
@@ -93,6 +96,17 @@ flowchart TD
 - Facade — an application facade exposes one cohesive surface to both the CLI
   and the daemon.
 - Repository — `VoiceRepository` abstracts saved-voice persistence on the server.
+
+### Cross-cutting concerns
+
+The acceleration probe (`accel`) and rotating logging (`logging`) of ADR-0002
+are cross-cutting concerns. They are invoked from the composition root
+(`main.rs`) and wired around the use cases rather than reached through a driven
+port. This is a deliberate hexagonal cross-cutting treatment, not an
+inward-dependency exception: the domain and application layers never call them;
+the root configures logging before constructing the object graph and exposes
+the probe to the `check` use case as plain data, so no framework type crosses
+the application boundary.
 
 ### Consequences
 
