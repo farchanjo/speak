@@ -79,16 +79,38 @@ Chosen option: "Option A".
 - A single `async-openai` client (warm keep-alive, tuned reqwest pool) is built
   once in the composition root and shared by every adapter call.
 - Every network call — typed endpoint, `_byot` speech request, chat-MT request,
-  daemon forward, and the realtime SSE stream — is wrapped by an injected
-  `RetryPolicy` (the resilience Strategy of ADR-0003): a configurable
-  exponential backoff with jitter, bounded by `max_retries`, growing from
-  `backoff_initial_ms` by `multiplier` up to `backoff_max_ms`, and retrying only
-  failures in the `retry_on` set (`connect + timeout + 5xx + 429` by default).
-  The policy is a domain value object built from the `[retry]` config section
-  (ADR-0006) and is unit-testable in isolation (attempt count, delay growth,
-  jitter bounds, `retry_on` classification). The realtime SSE consumer treats a
-  dropped stream as a retryable failure and **reconnects** under the same bounded
-  policy rather than aborting the live session.
+  daemon forward, and the realtime SSE stream — is retried by a **port-preserving
+  decorator**, not by the use case calling a separate retry trait. The retry
+  topology is precise to avoid the role overload of the name "RetryPolicy":
+  - `domain::RetryPolicy` is a **pure value object** (max_retries,
+    backoff_initial_ms, backoff_max_ms, multiplier, jitter flag, `retry_on`
+    classification) that computes the backoff schedule.
+  - the `RetryPolicy` **port** (ADR-0003) is the resilience **Strategy** the
+    decorator consults; it is interchangeable (e.g. no-op, fixed, exponential).
+  - the `adapters/retry` module provides a **generic decorator for each wrapped
+    driven port** (`Synthesizer`, `Transcriber`, `Translator`,
+    `VoiceRepository`, `RealtimeStream`, `ServerProbe`, daemon forward). Each
+    decorator **implements the same port it wraps** — so it is transparently
+    substitutable for the concrete adapter the use case holds — and internally
+    consults the `RetryPolicy` Strategy for the schedule. The use case therefore
+    invokes `Synthesizer`/`Transcriber`/... as usual and is unaware of retrying;
+    it never invokes a singular "RetryPolicy port".
+  The schedule is a configurable exponential backoff with jitter, bounded by
+  `max_retries`, growing from `backoff_initial_ms` by `multiplier` up to
+  `backoff_max_ms`, and retrying only failures in the `retry_on` set
+  (`connect + timeout + 5xx + 429` by default). The value object is built from
+  the `[retry]` config section (ADR-0006) and is unit-testable in isolation
+  (attempt count, delay growth, jitter bounds, `retry_on` classification). The
+  realtime SSE consumer treats a dropped stream as a retryable failure and
+  **reconnects** under the same bounded policy rather than aborting the session.
+- **Jitter vs. reproducibility / domain purity** (Constitution Principle 3 and
+  the "domain is pure, zero I/O" rule): randomness is kept out of the value
+  object. `domain::RetryPolicy::delay_for(attempt, rng)` takes an **injected**
+  `Rng` (a small port) and returns a deterministic delay for a given attempt and
+  RNG state. Production wires a seeded/OS RNG at the composition root; tests
+  inject a fixed-seed RNG, so jitter bounds are asserted deterministically and
+  the value object stays pure (no ambient randomness, no I/O). `jitter = false`
+  bypasses the RNG entirely for fully reproducible runs.
 
 ### Consequences
 
