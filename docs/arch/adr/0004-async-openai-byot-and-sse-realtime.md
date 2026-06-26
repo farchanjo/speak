@@ -89,12 +89,20 @@ Chosen option: "Option A".
     decorator consults; it is interchangeable (e.g. no-op, fixed, exponential).
   - the `adapters/retry` module provides a **generic decorator for each wrapped
     driven port** (`Synthesizer`, `Transcriber`, `Translator`,
-    `VoiceRepository`, `RealtimeStream`, `ServerProbe`, daemon forward). Each
-    decorator **implements the same port it wraps** — so it is transparently
+    `VoiceRepository`, `RealtimeStream`, `ServerProbe`). Each decorator
+    **implements the same port it wraps** — so it is transparently
     substitutable for the concrete adapter the use case holds — and internally
     consults the `RetryPolicy` Strategy for the schedule. The use case therefore
     invokes `Synthesizer`/`Transcriber`/... as usual and is unaware of retrying;
     it never invokes a singular "RetryPolicy port".
+  - the CLI-side **daemon-forward client** is **not** a driven port and is
+    therefore not in the list above. It preserves the application **Facade**
+    surface — the `CommandTransport` contract that both the in-process Facade and
+    the socket-forward client implement (ADR-0005) — so its decorator wraps that
+    Facade surface, retrying the socket connect/forward under the same
+    `RetryPolicy` Strategy. It sits *beside* the driven-port decorators (it
+    preserves the Facade, not a port), which is what "daemon forward is retried"
+    in the opening sentence means.
   The schedule is a configurable exponential backoff with jitter, bounded by
   `max_retries`, growing from `backoff_initial_ms` by `multiplier` up to
   `backoff_max_ms`, and retrying only failures in the `retry_on` set
