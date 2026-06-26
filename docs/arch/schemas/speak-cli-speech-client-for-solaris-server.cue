@@ -51,3 +51,25 @@ package schemas
 // #ConfigOrigin labels where an effective config value came from (FR-13).
 // DDD role: ValueObject
 #ConfigOrigin: "flag" | "env" | "toml" | "default"
+
+// #RetryOn classifies which network failures the retry policy retries
+// (FR-17 / ADR-0004 / ADR-0006). The default retried set is the union of all
+// four: connection failures, timeouts, server 5xx, and 429 throttling.
+// DDD role: ValueObject
+#RetryOn: "connect" | "timeout" | "5xx" | "429"
+
+// #RetryPolicy is the domain value object describing the configurable
+// exponential-backoff + jitter retry strategy (FR-17 / ADR-0004). It is pure
+// data injected at the composition root and applied to every network call
+// (synthesize, transcribe, translate, voice CRUD, daemon forward, SSE reconnect)
+// via the `RetryPolicy` port (a GoF Strategy). It mirrors the `[retry]` config
+// section (#Retry in config.cue) one-to-one. It is value-equal (no identity).
+// DDD role: ValueObject
+#RetryPolicy: {
+	maxRetries:       int & >=0  // attempts beyond the first
+	backoffInitialMs: int & >0   // first delay before retry
+	backoffMaxMs:     int & >0    // delay ceiling after growth
+	multiplier:       number & >0 // geometric growth factor per attempt
+	jitter:           bool | *true
+	retryOn: [...#RetryOn] & [_, ...] // non-empty classification set
+}

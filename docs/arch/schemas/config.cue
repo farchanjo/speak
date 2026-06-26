@@ -4,7 +4,9 @@
 // This file mirrors the ADR-0006 configuration catalog (the cross-consistency
 // validator and CUE schema must mirror it) and adds the domain value objects
 // (#GenParams, #PcmBuffer) and the adapters/sse wire DTO (#RealtimeFrame) that
-// the domain schema file does not model.
+// the domain schema file does not model. The `[retry]` (#Retry) and `[http]`
+// (#Http) sections mirror the resilience + chat-MT catalog of ADR-0006; #Retry
+// is the TOML projection of the `#RetryPolicy` domain value object.
 //
 // The config section types carry the `InfrastructureLayer` DDD role: they mirror
 // the flat ADR-0006 TOML catalog, so the validator's domain calisthenics
@@ -77,6 +79,8 @@ package schemas
 	ffmpeg:   #Ffmpeg
 	realtime: #Realtime
 	daemon:   #Daemon
+	http:     #Http
+	retry:    #Retry
 	general:  #General
 }
 
@@ -174,17 +178,38 @@ package schemas
 	autostart:     bool | *false
 }
 
-// [general] + top-level extras.
+// [http] — non-OpenAI chat-MT endpoint and the save directory for `-o`/saved
+// output. `translate_url` (with `translate_model`) enables arbitrary `--to`
+// targets in the realtime pipeline (FR-8); without it the client degrades to
+// the source transcript. All three are env-overridable (SPEAK_TRANSLATE_URL /
+// SPEAK_TRANSLATE_MODEL / SPEAK_SAVE_DIR).
+#Http: {
+	translate_url?:   string & !="" // SPEAK_TRANSLATE_URL
+	translate_model?: string & !="" // SPEAK_TRANSLATE_MODEL
+	save_dir?:        string & !="" // SPEAK_SAVE_DIR
+}
+
+// [retry] — configurable exponential-backoff + jitter resilience policy
+// (FR-17 / ADR-0004 / ADR-0006). Every network call is wrapped by it. This is
+// the TOML projection of the #RetryPolicy domain value object; every field is
+// env-overridable so there are no hardcoded magic numbers (FR-18).
+#Retry: {
+	max_retries:        int & >=0 | *3   // SPEAK_RETRY_MAX
+	backoff_initial_ms: int & >0 | *200  // SPEAK_RETRY_BACKOFF_MS
+	backoff_max_ms:     int & >0 | *5000 // SPEAK_RETRY_BACKOFF_MAX_MS
+	multiplier:         number & >0 | *2.0
+	jitter:             bool | *true // SPEAK_RETRY_JITTER
+	// SPEAK_RETRY_ON; default retries connect + timeout + 5xx + 429.
+	retry_on: *["connect", "timeout", "5xx", "429"] | [...#RetryOn]
+}
+
+// [general] + top-level extras. (`translate_url`/`translate_model`/`save_dir`
+// moved to [http]; retry/backoff superseded by the [retry] policy section.)
 #General: {
-	quiet:            bool | *false
-	json:             bool | *false
-	color?:           bool
-	temp_dir?:        string
-	log?:             string
-	config_path?:     string
-	translate_url?:   string // chat-MT endpoint for arbitrary --to targets
-	translate_model?: string
-	retry?:           int & >=0
-	backoff?:         number & >=0
-	save_dir?:        string
+	quiet:        bool | *false
+	json:         bool | *false
+	color?:       bool
+	temp_dir?:    string
+	log?:         string
+	config_path?: string
 }
