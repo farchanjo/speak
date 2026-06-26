@@ -6,9 +6,19 @@ rust-version = "1.85"
 description = "Speech client for the solaris OpenAI-compatible TTS/ASR server"
 license = "MIT"
 
+[lib]
+name = "speak"
+path = "src/lib.rs"
+
 [[bin]]
 name = "speak"
 path = "src/main.rs"
+
+[features]
+# Opt-in suite that talks to a live server (default http://solaris:8800).
+# Off by default so `cargo test` stays hermetic; enable with
+# `cargo test --features integration` when the server is reachable.
+integration = []
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "signal", "time", "io-util", "net", "sync", "process"] }

@@ -5,23 +5,6 @@
 //! (AVAudioEngine); the microphone is captured natively too. Nothing is
 //! shelled out.
 
-mod accel;
-mod client;
-mod codec;
-mod config;
-mod daemon;
-mod domain;
-mod logging;
-mod paths;
-mod transport;
-
-#[cfg(target_os = "macos")]
-#[path = "audio_macos.rs"]
-mod audio;
-#[cfg(not(target_os = "macos"))]
-#[path = "audio_stub.rs"]
-mod audio;
-
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
@@ -29,9 +12,10 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, Shell};
 
-use crate::client::SpeakRequest;
-use crate::config::{Config, GlobalFlags};
-use crate::transport::Transport;
+use speak::client::SpeakRequest;
+use speak::config::{Config, GlobalFlags};
+use speak::transport::Transport;
+use speak::{accel, audio, client, codec, config, daemon, domain, logging, paths};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -852,4 +836,117 @@ fn file_name(path: &Path) -> String {
         .and_then(|s| s.to_str())
         .unwrap_or("audio")
         .to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn asr_fields_omit_language_when_none() {
+        // Translate (always English) sends no language hint.
+        let fields = asr_fields("whisper-1", None, "json");
+        assert_eq!(
+            fields,
+            vec![
+                ("model".to_owned(), "whisper-1".to_owned()),
+                ("response_format".to_owned(), "json".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn asr_fields_include_language_when_present() {
+        // Transcribe forwards the source-language hint.
+        let fields = asr_fields("whisper-1", Some("pt"), "text");
+        assert!(fields.contains(&("language".to_owned(), "pt".to_owned())));
+        assert_eq!(fields.len(), 3);
+    }
+
+    #[test]
+    fn gen_to_map_only_emits_set_params() {
+        let gen = config::Gen {
+            num_step: Some(24),
+            guidance_scale: Some(3.0),
+            denoise: Some(true),
+            ..config::Gen::default()
+        };
+        let map = gen_to_map(&gen);
+        assert_eq!(map.get("num_step"), Some(&serde_json::json!(24)));
+        assert_eq!(map.get("guidance_scale"), Some(&serde_json::json!(3.0)));
+        assert_eq!(map.get("denoise"), Some(&serde_json::json!(true)));
+        assert!(!map.contains_key("t_shift"));
+        assert_eq!(map.len(), 3);
+    }
+
+    #[test]
+    fn gen_to_map_empty_when_nothing_set() {
+        assert!(gen_to_map(&config::Gen::default()).is_empty());
+    }
+
+    #[test]
+    fn validate_instruct_accepts_canonical_tags() {
+        let out = validate_instruct(Some("Female, British Accent")).unwrap();
+        assert_eq!(out.as_deref(), Some("Female, British Accent"));
+    }
+
+    #[test]
+    fn validate_instruct_passes_none_through() {
+        assert!(validate_instruct(None).unwrap().is_none());
+    }
+
+    #[test]
+    fn validate_instruct_rejects_free_text() {
+        assert!(validate_instruct(Some("sounds friendly")).is_err());
+    }
+
+    #[test]
+    fn resolve_text_joins_positional_args() {
+        let parts = vec!["hello".to_owned(), "world".to_owned()];
+        assert_eq!(resolve_text(&parts).unwrap(), "hello world");
+    }
+
+    #[test]
+    fn file_name_extracts_basename_with_fallback() {
+        assert_eq!(file_name(Path::new("/a/b/clip.wav")), "clip.wav");
+        assert_eq!(file_name(Path::new("plain.mp3")), "plain.mp3");
+        assert_eq!(file_name(Path::new("/")), "audio");
+    }
+
+    #[test]
+    fn non_empty_falls_back_on_blank() {
+        assert_eq!(non_empty("  done  ".to_owned(), "fallback"), "done");
+        assert_eq!(non_empty("   ".to_owned(), "fallback"), "fallback");
+    }
+
+    #[test]
+    fn list_or_renders_items_or_placeholder() {
+        assert_eq!(list_or(&["a".to_owned(), "b".to_owned()], "none"), "a, b");
+        assert_eq!(list_or(&[], "none"), "none");
+    }
+
+    #[test]
+    fn audio_format_wire_strings() {
+        assert_eq!(AudioFormat::Mp3.as_str(), "mp3");
+        assert_eq!(AudioFormat::Opus.as_str(), "opus");
+        assert_eq!(AudioFormat::Aac.as_str(), "aac");
+        assert_eq!(AudioFormat::Flac.as_str(), "flac");
+        assert_eq!(AudioFormat::Wav.as_str(), "wav");
+        assert_eq!(AudioFormat::Pcm.as_str(), "pcm");
+    }
+
+    #[test]
+    fn text_format_wire_strings() {
+        assert_eq!(TextFormat::Text.as_str(), "text");
+        assert_eq!(TextFormat::Json.as_str(), "json");
+        assert_eq!(TextFormat::Srt.as_str(), "srt");
+        assert_eq!(TextFormat::Vtt.as_str(), "vtt");
+        assert_eq!(TextFormat::VerboseJson.as_str(), "verbose_json");
+    }
+
+    #[test]
+    fn cli_definition_is_valid() {
+        // Guards against clap derive misconfiguration (duplicate args, etc.).
+        Cli::command().debug_assert();
+    }
 }
