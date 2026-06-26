@@ -66,17 +66,21 @@ mod tests {
         let mut saved: Vec<(String, Option<String>)> = Vec::new();
         for (k, v) in set {
             saved.push(((*k).to_owned(), std::env::var(k).ok()));
-            std::env::set_var(k, v);
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { std::env::set_var(k, v) };
         }
         for k in unset {
             saved.push(((*k).to_owned(), std::env::var(k).ok()));
-            std::env::remove_var(k);
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { std::env::remove_var(k) };
         }
         let out = body();
         for (k, prev) in saved.into_iter().rev() {
             match prev {
-                Some(v) => std::env::set_var(&k, v),
-                None => std::env::remove_var(&k),
+                // TODO: Audit that the environment access only happens in single-threaded code.
+                Some(v) => unsafe { std::env::set_var(&k, v) },
+                // TODO: Audit that the environment access only happens in single-threaded code.
+                None => unsafe { std::env::remove_var(&k) },
             }
         }
         out

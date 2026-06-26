@@ -4,7 +4,7 @@
 //! platforms playback and capture return a clear error instead of panicking,
 //! so file-oriented commands (`say -o`, `transcribe`, `translate`) still work.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use crate::codec::Pcm;
 

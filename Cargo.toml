@@ -1,8 +1,9 @@
 [package]
 name = "speak"
 version = "0.1.0"
-edition = "2021"
-rust-version = "1.85"
+edition = "2024"
+resolver = "3"
+rust-version = "1.95"
 description = "Speech client for the solaris OpenAI-compatible TTS/ASR server"
 license = "MIT"
 

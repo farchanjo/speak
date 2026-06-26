@@ -130,7 +130,7 @@ pub struct Tts {
     /// Use native `/tts`.
     pub native: bool,
     /// Generation params.
-    pub gen: Gen,
+    pub gen_params: Gen,
 }
 
 /// `[asr]` recognition settings.
@@ -364,8 +364,8 @@ struct FileTts {
     speed: Option<f32>,
     instruct: Option<String>,
     native: Option<bool>,
-    #[serde(default)]
-    gen: FileGen,
+    #[serde(default, rename = "gen")]
+    gen_params: FileGen,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -523,11 +523,7 @@ fn pick_opt<T: FromStr + Clone>(
 }
 
 fn flag_true(set: bool) -> Option<bool> {
-    if set {
-        Some(true)
-    } else {
-        None
-    }
+    if set { Some(true) } else { None }
 }
 
 fn default_user_agent() -> String {
@@ -725,77 +721,77 @@ impl Resolver {
                 self.file.tts.native,
                 false,
             ),
-            gen: self.gen(),
+            gen_params: self.gen_params(),
         }
     }
 
-    fn gen(&mut self) -> Gen {
+    fn gen_params(&mut self) -> Gen {
         Gen {
             num_step: self.opt(
                 "tts.gen.num_step",
                 None,
                 "SPEAK_TTS_GEN_NUM_STEP",
-                self.file.tts.gen.num_step,
+                self.file.tts.gen_params.num_step,
             ),
             guidance_scale: self.opt(
                 "tts.gen.guidance_scale",
                 None,
                 "SPEAK_TTS_GEN_GUIDANCE_SCALE",
-                self.file.tts.gen.guidance_scale,
+                self.file.tts.gen_params.guidance_scale,
             ),
             t_shift: self.opt(
                 "tts.gen.t_shift",
                 None,
                 "SPEAK_TTS_GEN_T_SHIFT",
-                self.file.tts.gen.t_shift,
+                self.file.tts.gen_params.t_shift,
             ),
             layer_penalty_factor: self.opt(
                 "tts.gen.layer_penalty_factor",
                 None,
                 "SPEAK_TTS_GEN_LAYER_PENALTY_FACTOR",
-                self.file.tts.gen.layer_penalty_factor,
+                self.file.tts.gen_params.layer_penalty_factor,
             ),
             position_temperature: self.opt(
                 "tts.gen.position_temperature",
                 None,
                 "SPEAK_TTS_GEN_POSITION_TEMPERATURE",
-                self.file.tts.gen.position_temperature,
+                self.file.tts.gen_params.position_temperature,
             ),
             class_temperature: self.opt(
                 "tts.gen.class_temperature",
                 None,
                 "SPEAK_TTS_GEN_CLASS_TEMPERATURE",
-                self.file.tts.gen.class_temperature,
+                self.file.tts.gen_params.class_temperature,
             ),
             denoise: self.opt(
                 "tts.gen.denoise",
                 None,
                 "SPEAK_TTS_GEN_DENOISE",
-                self.file.tts.gen.denoise,
+                self.file.tts.gen_params.denoise,
             ),
             preprocess_prompt: self.opt(
                 "tts.gen.preprocess_prompt",
                 None,
                 "SPEAK_TTS_GEN_PREPROCESS_PROMPT",
-                self.file.tts.gen.preprocess_prompt,
+                self.file.tts.gen_params.preprocess_prompt,
             ),
             postprocess_output: self.opt(
                 "tts.gen.postprocess_output",
                 None,
                 "SPEAK_TTS_GEN_POSTPROCESS_OUTPUT",
-                self.file.tts.gen.postprocess_output,
+                self.file.tts.gen_params.postprocess_output,
             ),
             audio_chunk_duration: self.opt(
                 "tts.gen.audio_chunk_duration",
                 None,
                 "SPEAK_TTS_GEN_AUDIO_CHUNK_DURATION",
-                self.file.tts.gen.audio_chunk_duration,
+                self.file.tts.gen_params.audio_chunk_duration,
             ),
             audio_chunk_threshold: self.opt(
                 "tts.gen.audio_chunk_threshold",
                 None,
                 "SPEAK_TTS_GEN_AUDIO_CHUNK_THRESHOLD",
-                self.file.tts.gen.audio_chunk_threshold,
+                self.file.tts.gen_params.audio_chunk_threshold,
             ),
         }
     }
@@ -1187,11 +1183,14 @@ mod tests {
     fn with_env<T>(name: &str, value: &str, body: impl FnOnce() -> T) -> T {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let prev = std::env::var(name).ok();
-        std::env::set_var(name, value);
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var(name, value) };
         let out = body();
         match prev {
-            Some(v) => std::env::set_var(name, v),
-            None => std::env::remove_var(name),
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            Some(v) => unsafe { std::env::set_var(name, v) },
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            None => unsafe { std::env::remove_var(name) },
         }
         out
     }
@@ -1200,10 +1199,12 @@ mod tests {
     fn without_env<T>(name: &str, body: impl FnOnce() -> T) -> T {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let prev = std::env::var(name).ok();
-        std::env::remove_var(name);
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var(name) };
         let out = body();
         if let Some(v) = prev {
-            std::env::set_var(name, v);
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { std::env::set_var(name, v) };
         }
         out
     }

@@ -10,10 +10,10 @@ use std::sync::mpsc::sync_channel;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use block2::RcBlock;
-use objc2::rc::{autoreleasepool, Retained};
 use objc2::AllocAnyThread;
+use objc2::rc::{Retained, autoreleasepool};
 use objc2_avf_audio::{
     AVAudioEngine, AVAudioFormat, AVAudioInputNode, AVAudioPCMBuffer, AVAudioPlayerNode,
     AVAudioPlayerNodeCompletionCallbackType, AVAudioTime,
@@ -80,38 +80,42 @@ fn play_inner(pcm: &Pcm, volume: f32) -> Result<()> {
 }
 
 unsafe fn make_format(rate: u32, channels: u16) -> Result<Retained<AVAudioFormat>> {
-    // Standard format = deinterleaved float32, which AVAudioEngine connections
-    // and AVAudioPlayerNode accept without raising format-mismatch exceptions.
-    AVAudioFormat::initStandardFormatWithSampleRate_channels(
-        AVAudioFormat::alloc(),
-        f64::from(rate),
-        u32::from(channels),
-    )
-    .ok_or_else(|| anyhow!("AVAudioFormat init failed"))
+    unsafe {
+        // Standard format = deinterleaved float32, which AVAudioEngine connections
+        // and AVAudioPlayerNode accept without raising format-mismatch exceptions.
+        AVAudioFormat::initStandardFormatWithSampleRate_channels(
+            AVAudioFormat::alloc(),
+            f64::from(rate),
+            u32::from(channels),
+        )
+        .ok_or_else(|| anyhow!("AVAudioFormat init failed"))
+    }
 }
 
 unsafe fn make_buffer(format: &AVAudioFormat, pcm: &Pcm) -> Result<Retained<AVAudioPCMBuffer>> {
-    let channels = usize::from(pcm.channels.max(1));
-    let frames = pcm.frames();
-    let buffer = AVAudioPCMBuffer::initWithPCMFormat_frameCapacity(
-        AVAudioPCMBuffer::alloc(),
-        format,
-        frames as u32,
-    )
-    .ok_or_else(|| anyhow!("AVAudioPCMBuffer init failed"))?;
-    buffer.setFrameLength(frames as u32);
-    let data = buffer.floatChannelData();
-    if data.is_null() {
-        bail!("AVAudioPCMBuffer exposed no float channel data");
-    }
-    // Deinterleave the interleaved source into one plane per channel.
-    for c in 0..channels {
-        let plane = (*data.add(c)).as_ptr();
-        for f in 0..frames {
-            *plane.add(f) = pcm.samples[f * channels + c];
+    unsafe {
+        let channels = usize::from(pcm.channels.max(1));
+        let frames = pcm.frames();
+        let buffer = AVAudioPCMBuffer::initWithPCMFormat_frameCapacity(
+            AVAudioPCMBuffer::alloc(),
+            format,
+            frames as u32,
+        )
+        .ok_or_else(|| anyhow!("AVAudioPCMBuffer init failed"))?;
+        buffer.setFrameLength(frames as u32);
+        let data = buffer.floatChannelData();
+        if data.is_null() {
+            bail!("AVAudioPCMBuffer exposed no float channel data");
         }
+        // Deinterleave the interleaved source into one plane per channel.
+        for c in 0..channels {
+            let plane = (*data.add(c)).as_ptr();
+            for f in 0..frames {
+                *plane.add(f) = pcm.samples[f * channels + c];
+            }
+        }
+        Ok(buffer)
     }
-    Ok(buffer)
 }
 
 fn capture_inner(secs: f64) -> Result<Pcm> {
@@ -153,40 +157,49 @@ unsafe fn install_tap(
     format: &AVAudioFormat,
     store: &Arc<Mutex<Vec<f32>>>,
 ) {
-    let sink = Arc::clone(store);
-    let block = RcBlock::new(
-        move |buf: NonNull<AVAudioPCMBuffer>, _when: NonNull<AVAudioTime>| {
-            // SAFETY: AVFAudio guarantees `buf` is valid for the callback.
-            unsafe { append_buffer(buf.as_ref(), &sink) };
-        },
-    );
-    // AVFAudio copies (retains) the block internally, so the local RcBlock may
-    // drop after this call returns.
-    input.installTapOnBus_bufferSize_format_block(0, 4096, Some(format), RcBlock::as_ptr(&block));
+    unsafe {
+        let sink = Arc::clone(store);
+        let block = RcBlock::new(
+            move |buf: NonNull<AVAudioPCMBuffer>, _when: NonNull<AVAudioTime>| {
+                // SAFETY: AVFAudio guarantees `buf` is valid for the callback.
+                append_buffer(buf.as_ref(), &sink);
+            },
+        );
+        // AVFAudio copies (retains) the block internally, so the local RcBlock may
+        // drop after this call returns.
+        input.installTapOnBus_bufferSize_format_block(
+            0,
+            4096,
+            Some(format),
+            RcBlock::as_ptr(&block),
+        );
+    }
 }
 
 unsafe fn append_buffer(buf: &AVAudioPCMBuffer, sink: &Arc<Mutex<Vec<f32>>>) {
-    let frames = buf.frameLength() as usize;
-    if frames == 0 {
-        return;
-    }
-    let format = buf.format();
-    let channels = usize::try_from(format.channelCount()).unwrap_or(0);
-    let data = buf.floatChannelData();
-    if channels == 0 || data.is_null() {
-        return;
-    }
-    let Ok(mut guard) = sink.lock() else {
-        return;
-    };
-    if format.isInterleaved() {
-        let slice = std::slice::from_raw_parts((*data).as_ptr(), frames * channels);
-        guard.extend_from_slice(slice);
-    } else {
-        for f in 0..frames {
-            for c in 0..channels {
-                let plane = (*data.add(c)).as_ptr();
-                guard.push(*plane.add(f));
+    unsafe {
+        let frames = buf.frameLength() as usize;
+        if frames == 0 {
+            return;
+        }
+        let format = buf.format();
+        let channels = usize::try_from(format.channelCount()).unwrap_or(0);
+        let data = buf.floatChannelData();
+        if channels == 0 || data.is_null() {
+            return;
+        }
+        let Ok(mut guard) = sink.lock() else {
+            return;
+        };
+        if format.isInterleaved() {
+            let slice = std::slice::from_raw_parts((*data).as_ptr(), frames * channels);
+            guard.extend_from_slice(slice);
+        } else {
+            for f in 0..frames {
+                for c in 0..channels {
+                    let plane = (*data.add(c)).as_ptr();
+                    guard.push(*plane.add(f));
+                }
             }
         }
     }

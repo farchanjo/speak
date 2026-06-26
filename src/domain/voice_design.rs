@@ -6,7 +6,7 @@
 //! tag text is preserved on the wire so known-good title-cased tags such as
 //! `"British Accent"` are sent verbatim.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 /// The canonical voice-design tags accepted by the server `instruct` field.
 pub const CANONICAL_TAGS: &[&str] = &[

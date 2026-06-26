@@ -32,10 +32,10 @@ impl Transport {
             tracing::debug!(socket = %socket.display(), "transport: daemon");
             return Ok(Self::Daemon(socket));
         }
-        if cfg.daemon.autostart {
-            if let Some(transport) = autostart(&socket).await {
-                return Ok(transport);
-            }
+        if cfg.daemon.autostart
+            && let Some(transport) = autostart(&socket).await
+        {
+            return Ok(transport);
         }
         tracing::debug!("transport: direct");
         Ok(Self::Direct(SpeechClient::new(cfg)?))

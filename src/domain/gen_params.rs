@@ -5,7 +5,7 @@
 //! `num_steps` and any other key are rejected. This keeps the wire request in
 //! lockstep with the server's documented gen-param surface.
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use serde_json::{Map, Value};
 
 /// Canonical generation-param keys (excludes the `steps` CLI alias).

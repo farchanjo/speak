@@ -124,10 +124,10 @@ fn hwdevice_types() -> Vec<String> {
         let mut kind = ffi::av_hwdevice_iterate_types(ffi::AVHWDeviceType::NONE);
         while kind != ffi::AVHWDeviceType::NONE {
             let name = ffi::av_hwdevice_get_type_name(kind);
-            if !name.is_null() {
-                if let Ok(s) = CStr::from_ptr(name).to_str() {
-                    out.push(s.to_owned());
-                }
+            if !name.is_null()
+                && let Ok(s) = CStr::from_ptr(name).to_str()
+            {
+                out.push(s.to_owned());
             }
             kind = ffi::av_hwdevice_iterate_types(kind);
         }
@@ -152,13 +152,17 @@ mod tests {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let prev = std::env::var(ENV_HWACCEL).ok();
         match value {
-            Some(v) => std::env::set_var(ENV_HWACCEL, v),
-            None => std::env::remove_var(ENV_HWACCEL),
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            Some(v) => unsafe { std::env::set_var(ENV_HWACCEL, v) },
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            None => unsafe { std::env::remove_var(ENV_HWACCEL) },
         }
         let out = body();
         match prev {
-            Some(v) => std::env::set_var(ENV_HWACCEL, v),
-            None => std::env::remove_var(ENV_HWACCEL),
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            Some(v) => unsafe { std::env::set_var(ENV_HWACCEL, v) },
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            None => unsafe { std::env::remove_var(ENV_HWACCEL) },
         }
         out
     }

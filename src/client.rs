@@ -7,11 +7,11 @@
 
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use reqwest::multipart::{Form, Part};
 use reqwest::{Client, Method};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::config::Config;
 use crate::domain::retry::{ErrorKind, RetryPolicy};
@@ -149,12 +149,11 @@ impl ProxyReply {
     pub fn into_text(self, format: &str) -> Result<String> {
         let reply = self.ensure_ok()?;
         let body = String::from_utf8_lossy(&reply.body).into_owned();
-        if matches!(format, "json" | "verbose_json") {
-            if let Ok(value) = serde_json::from_str::<Value>(&body) {
-                if let Some(text) = value.get("text").and_then(Value::as_str) {
-                    return Ok(text.trim().to_owned());
-                }
-            }
+        if matches!(format, "json" | "verbose_json")
+            && let Ok(value) = serde_json::from_str::<Value>(&body)
+            && let Some(text) = value.get("text").and_then(Value::as_str)
+        {
+            return Ok(text.trim().to_owned());
         }
         Ok(body.trim().to_owned())
     }

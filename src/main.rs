@@ -8,9 +8,9 @@
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
-use clap_complete::{generate, Shell};
+use clap_complete::{Shell, generate};
 
 use speak::client::SpeakRequest;
 use speak::config::{Config, GlobalFlags};
@@ -474,7 +474,7 @@ fn report_synth(reply: &client::AudioReply) {
 
 /// Merge configured `[tts.gen]` params, then overlay per-call `--set` overrides.
 fn gen_extra(cfg: &Config, sets: &[String]) -> Result<serde_json::Map<String, serde_json::Value>> {
-    let mut map = gen_to_map(&cfg.tts.gen);
+    let mut map = gen_to_map(&cfg.tts.gen_params);
     for (key, value) in domain::gen_params::parse_overrides(sets)? {
         map.insert(key, value);
     }
@@ -807,7 +807,7 @@ async fn speak_text(
         instruct: instruct.as_deref(),
         ref_text: None,
         duration: None,
-        extra: gen_to_map(&cfg.tts.gen),
+        extra: gen_to_map(&cfg.tts.gen_params),
     };
     let reply = transport
         .proxy("POST", "/v1/audio/speech", Some(req.to_body()))
@@ -865,13 +865,13 @@ mod tests {
 
     #[test]
     fn gen_to_map_only_emits_set_params() {
-        let gen = config::Gen {
+        let params = config::Gen {
             num_step: Some(24),
             guidance_scale: Some(3.0),
             denoise: Some(true),
             ..config::Gen::default()
         };
-        let map = gen_to_map(&gen);
+        let map = gen_to_map(&params);
         assert_eq!(map.get("num_step"), Some(&serde_json::json!(24)));
         assert_eq!(map.get("guidance_scale"), Some(&serde_json::json!(3.0)));
         assert_eq!(map.get("denoise"), Some(&serde_json::json!(true)));

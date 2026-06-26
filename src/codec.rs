@@ -13,7 +13,7 @@ use std::os::raw::{c_int, c_void};
 use std::ptr;
 use std::sync::Once;
 
-use anyhow::{anyhow, bail, Context as _, Result};
+use anyhow::{Context as _, Result, anyhow, bail};
 use ff::ffi;
 use ffmpeg_the_third as ff;
 
@@ -212,15 +212,17 @@ struct MemSource {
 }
 
 unsafe extern "C" fn read_packet(opaque: *mut c_void, buf: *mut u8, buf_size: c_int) -> c_int {
-    let src = &mut *opaque.cast::<MemSource>();
-    let remaining = src.data.len() - src.pos;
-    if remaining == 0 {
-        return ffi::AVERROR_EOF;
+    unsafe {
+        let src = &mut *opaque.cast::<MemSource>();
+        let remaining = src.data.len() - src.pos;
+        if remaining == 0 {
+            return ffi::AVERROR_EOF;
+        }
+        let n = remaining.min(buf_size as usize);
+        ptr::copy_nonoverlapping(src.data.as_ptr().add(src.pos), buf, n);
+        src.pos += n;
+        n as c_int
     }
-    let n = remaining.min(buf_size as usize);
-    ptr::copy_nonoverlapping(src.data.as_ptr().add(src.pos), buf, n);
-    src.pos += n;
-    n as c_int
 }
 
 /// Owns the raw AVIO context + opaque box and frees them after the wrapping
@@ -280,27 +282,29 @@ fn open_mem_input(bytes: Vec<u8>, avio: &mut Avio) -> Result<ff::format::context
 }
 
 unsafe fn finish_open(ctx: *mut ffi::AVIOContext) -> Result<ff::format::context::Input> {
-    let mut fmt = ffi::avformat_alloc_context();
-    if fmt.is_null() {
-        bail!("avformat_alloc_context failed");
+    unsafe {
+        let mut fmt = ffi::avformat_alloc_context();
+        if fmt.is_null() {
+            bail!("avformat_alloc_context failed");
+        }
+        (*fmt).pb = ctx;
+        (*fmt).flags |= ffi::AVFMT_FLAG_CUSTOM_IO;
+        let rc = ffi::avformat_open_input(
+            ptr::addr_of_mut!(fmt),
+            ptr::null(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+        );
+        if rc < 0 {
+            return Err(ff_err(rc)).context("avformat_open_input");
+        }
+        let rc = ffi::avformat_find_stream_info(fmt, ptr::null_mut());
+        if rc < 0 {
+            ffi::avformat_close_input(ptr::addr_of_mut!(fmt));
+            return Err(ff_err(rc)).context("avformat_find_stream_info");
+        }
+        Ok(ff::format::context::Input::wrap(fmt))
     }
-    (*fmt).pb = ctx;
-    (*fmt).flags |= ffi::AVFMT_FLAG_CUSTOM_IO;
-    let rc = ffi::avformat_open_input(
-        ptr::addr_of_mut!(fmt),
-        ptr::null(),
-        ptr::null_mut(),
-        ptr::null_mut(),
-    );
-    if rc < 0 {
-        return Err(ff_err(rc)).context("avformat_open_input");
-    }
-    let rc = ffi::avformat_find_stream_info(fmt, ptr::null_mut());
-    if rc < 0 {
-        ffi::avformat_close_input(ptr::addr_of_mut!(fmt));
-        return Err(ff_err(rc)).context("avformat_find_stream_info");
-    }
-    Ok(ff::format::context::Input::wrap(fmt))
 }
 
 // ---------------------------------------------------------------------------
@@ -340,14 +344,13 @@ fn open_audio_decoder(
     let index = stream.index();
     // Prefer the best available local decoder (e.g. AudioToolbox `*_at` on
     // macOS) when the accel policy allows; fall back to the default on failure.
-    if let Some(codec) = chosen_decoder(&stream) {
-        if let Ok(audio) = fresh_ctx(&stream, threads)?
+    if let Some(codec) = chosen_decoder(&stream)
+        && let Ok(audio) = fresh_ctx(&stream, threads)?
             .decoder()
             .open_as(codec)
             .and_then(|o| o.audio())
-        {
-            return Ok((index, audio));
-        }
+    {
+        return Ok((index, audio));
     }
     let decoder = fresh_ctx(&stream, threads)?
         .decoder()
@@ -447,36 +450,38 @@ impl Resampler {
         out_channels: i32,
         out_rate: i32,
     ) -> Result<Self> {
-        let mut out_layout = default_layout(out_channels);
-        let mut ctx: *mut ffi::SwrContext = ptr::null_mut();
-        let rc = ffi::swr_alloc_set_opts2(
-            ptr::addr_of_mut!(ctx),
-            ptr::addr_of!(out_layout),
-            out_fmt,
-            out_rate,
-            in_layout,
-            in_fmt,
-            in_rate,
-            0,
-            ptr::null_mut(),
-        );
-        ffi::av_channel_layout_uninit(ptr::addr_of_mut!(out_layout));
-        if rc < 0 || ctx.is_null() {
-            bail!("swr_alloc_set_opts2 failed");
+        unsafe {
+            let mut out_layout = default_layout(out_channels);
+            let mut ctx: *mut ffi::SwrContext = ptr::null_mut();
+            let rc = ffi::swr_alloc_set_opts2(
+                ptr::addr_of_mut!(ctx),
+                ptr::addr_of!(out_layout),
+                out_fmt,
+                out_rate,
+                in_layout,
+                in_fmt,
+                in_rate,
+                0,
+                ptr::null_mut(),
+            );
+            ffi::av_channel_layout_uninit(ptr::addr_of_mut!(out_layout));
+            if rc < 0 || ctx.is_null() {
+                bail!("swr_alloc_set_opts2 failed");
+            }
+            let rc = ffi::swr_init(ctx);
+            if rc < 0 {
+                ffi::swr_free(ptr::addr_of_mut!(ctx));
+                return Err(ff_err(rc)).context("swr_init");
+            }
+            let _ = in_channels;
+            Ok(Self {
+                ctx,
+                out_fmt,
+                out_channels,
+                out_rate,
+                in_rate,
+            })
         }
-        let rc = ffi::swr_init(ctx);
-        if rc < 0 {
-            ffi::swr_free(ptr::addr_of_mut!(ctx));
-            return Err(ff_err(rc)).context("swr_init");
-        }
-        let _ = in_channels;
-        Ok(Self {
-            ctx,
-            out_fmt,
-            out_channels,
-            out_rate,
-            in_rate,
-        })
     }
 
     fn bytes_per_sample(&self) -> usize {
@@ -487,34 +492,36 @@ impl Resampler {
     }
 
     unsafe fn run(&mut self, input: *const *const u8, in_samples: c_int) -> Result<Vec<u8>> {
-        let delay = ffi::swr_get_delay(self.ctx, i64::from(self.in_rate.max(1)));
-        let max_out = ffi::av_rescale_rnd(
-            delay + i64::from(in_samples),
-            i64::from(self.out_rate),
-            i64::from(self.in_rate.max(1)),
-            ffi::AVRounding::UP,
-        )
-        .max(0) as usize;
-        let frame_bytes = self.out_channels as usize * self.bytes_per_sample();
-        let mut buf = vec![0u8; max_out * frame_bytes];
-        let planes = [buf.as_mut_ptr()];
-        let got = ffi::swr_convert(
-            self.ctx,
-            planes.as_ptr(),
-            max_out as c_int,
-            input,
-            in_samples,
-        );
-        if got < 0 {
-            return Err(ff_err(got)).context("swr_convert");
+        unsafe {
+            let delay = ffi::swr_get_delay(self.ctx, i64::from(self.in_rate.max(1)));
+            let max_out = ffi::av_rescale_rnd(
+                delay + i64::from(in_samples),
+                i64::from(self.out_rate),
+                i64::from(self.in_rate.max(1)),
+                ffi::AVRounding::UP,
+            )
+            .max(0) as usize;
+            let frame_bytes = self.out_channels as usize * self.bytes_per_sample();
+            let mut buf = vec![0u8; max_out * frame_bytes];
+            let planes = [buf.as_mut_ptr()];
+            let got = ffi::swr_convert(
+                self.ctx,
+                planes.as_ptr(),
+                max_out as c_int,
+                input,
+                in_samples,
+            );
+            if got < 0 {
+                return Err(ff_err(got)).context("swr_convert");
+            }
+            buf.truncate(got as usize * frame_bytes);
+            Ok(buf)
         }
-        buf.truncate(got as usize * frame_bytes);
-        Ok(buf)
     }
 
     /// Convert one block of interleaved/planar input samples.
     unsafe fn convert(&mut self, input: *const *const u8, in_samples: c_int) -> Result<Vec<u8>> {
-        self.run(input, in_samples)
+        unsafe { self.run(input, in_samples) }
     }
 
     /// Flush any buffered samples after the final input block.

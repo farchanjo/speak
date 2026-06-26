@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded
 date: 2026-06-26
 deciders: [farchanjo]
 consulted: []
@@ -7,6 +7,22 @@ informed: []
 ---
 
 # Stay on Rust edition 2021 (defer the 2024 migration)
+
+> **Superseded 2026-06-26 — deferral resolved.** The migration trigger named in
+> this ADR (the `adapters/config` rebuild, T037) has fired and the bump landed:
+> `Cargo.toml` is now `edition = "2024"` / `resolver = "3"` /
+> `rust-version = "1.95"`, with a pinned `rust-toolchain.toml`
+> (`channel = "1.95"`). The reserved-keyword hazard is gone — the `[tts.gen]`
+> field was renamed to `gen_params` (serde `rename = "gen"` keeps the on-disk
+> TOML key `[tts.gen]`), not left as the raw `r#gen`. Migration was performed
+> with `cargo fix --edition`; the resulting edition-2024 `collapsible_if` /
+> `unsafe_op_in_unsafe_fn` / `tail_expr_drop_order` lints were resolved with
+> let-chains and explicit `unsafe` blocks. Verified GREEN: `cargo build
+> --release`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --all --
+> --check`, and the full `cargo test` suite. (`cargo msrv verify` is not
+> installed locally; the sole toolchain is rustc/cargo 1.95.0, so a green 1.95
+> build is the effective MSRV gate.) Option B below is retained for the
+> historical record.
 
 ## Context and Problem Statement
 

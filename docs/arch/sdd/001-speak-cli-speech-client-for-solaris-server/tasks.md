@@ -103,8 +103,11 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   (the deferral owner, ADR-0008): run `cargo fix --edition`, verify MSRV 1.95
   (`cargo msrv verify`) and a green build/clippy.
   (Partial: the `[retry]` section now resolves into `domain::retry::RetryPolicy`
-  with full `SPEAK_RETRY_*` overrides and appears in `config show`; the layered
-  tree move, the `[http]` split, and the edition-2024 bump remain pending.)
+  with full `SPEAK_RETRY_*` overrides and appears in `config show`; the
+  edition-2024 / resolver-3 / rust-version-1.95 bump + `rust-toolchain.toml`
+  landed (ADR-0008 resolved), including the `[tts.gen]` -> `gen_params` rename
+  (serde keeps the TOML key) and the let-chain / `unsafe`-block fixups; the
+  layered tree move and the `[http]` split remain pending.)
 - [ ] T038 `[adapter:libav]` record-output **encode**: hand-muxed WAV (no
   encoder) and FLAC via the libavcodec FLAC encoder through an in-memory AVIO
   **write** callback; implements `AudioEncoder` (`record --format wav|flac`,
