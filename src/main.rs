@@ -5,9 +5,11 @@
 //! (AVAudioEngine); the microphone is captured natively too. Nothing is
 //! shelled out.
 
+mod accel;
 mod client;
 mod codec;
 mod config;
+mod logging;
 
 #[cfg(target_os = "macos")]
 #[path = "audio_macos.rs"]
@@ -84,6 +86,8 @@ enum Command {
         #[command(subcommand)]
         action: VoicesAction,
     },
+    /// Probe the OS and local hardware acceleration libav can use.
+    Check,
     /// Print the server `/health` JSON.
     Health,
     /// Manage the config file.
@@ -285,6 +289,7 @@ impl TextFormat {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let _log_guard = logging::init();
     let cli = Cli::parse();
     run(cli).await
 }
@@ -294,7 +299,9 @@ async fn run(cli: Cli) -> Result<()> {
         return emit_completions(shell);
     }
     let cfg = Config::resolve(overrides(&cli.globals), config::load_file()?);
+    tracing::info!(host = %cfg.host, command = ?std::mem::discriminant(&cli.command), "dispatch");
     match cli.command {
+        Command::Check => cmd_check(&cfg),
         Command::Health => cmd_health(&cfg).await,
         Command::Config { action } => cmd_config(action, &cfg),
         Command::Say(args) => cmd_say(&cfg, &cli.globals, args).await,
@@ -326,6 +333,31 @@ async fn cmd_health(cfg: &Config) -> Result<()> {
     let value = client.health().await?;
     println!("{}", serde_json::to_string_pretty(&value)?);
     Ok(())
+}
+
+fn cmd_check(cfg: &Config) -> Result<()> {
+    let report = accel::probe();
+    println!("host:                  {}", cfg.host);
+    println!("os / arch:             {} / {}", report.os, report.arch);
+    println!("cpu cores (threading): {}", report.cpu_cores);
+    println!("libavcodec:            {}", report.libavcodec);
+    println!("hwdevice types:        {}", list_or(&report.hwdevice_types, "none"));
+    println!("audiotoolbox decoders: {}", list_or(&report.audiotoolbox_decoders, "none"));
+    println!("hwaccel policy:        {} (override: {}=auto|off|<decoder>)", report.policy, accel::ENV_HWACCEL);
+    println!("logs:                  {}", logging::log_dir().display());
+    println!(
+        "note: audio decode has no GPU/NVENC path (that hardware is server-side); \
+         local acceleration = all-core frame threading + AudioToolbox decoders."
+    );
+    Ok(())
+}
+
+fn list_or(items: &[String], empty: &str) -> String {
+    if items.is_empty() {
+        empty.to_owned()
+    } else {
+        items.join(", ")
+    }
 }
 
 fn cmd_config(action: ConfigAction, cfg: &Config) -> Result<()> {

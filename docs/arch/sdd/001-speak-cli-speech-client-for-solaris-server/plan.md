@@ -26,8 +26,12 @@ STT, translation, and a realtime translation pipeline, with trivial configuratio
 - `audio_macos.rs` — native CoreAudio: `play` (AVAudioPlayerNode ->
   `mainMixerNode` -> output) and `capture_chunk` (inputNode tap). Gated
   `#[cfg(target_os = "macos")]`; `audio_stub.rs` errors elsewhere.
+- `accel.rs` — OS + local-acceleration probe (libav hwdevice types,
+  AudioToolbox decoders), `SPEAK_HWACCEL` policy, per-stream decoder selection.
+- `logging.rs` — `tracing` daily-rotating file logs under `~/.speak/logs`
+  (`SPEAK_LOG`/`SPEAK_LOG_DIR`, retention-capped, non-blocking).
 - `main.rs` — commands `say|tts`, `transcribe`, `translate`, `realtime`,
-  `health`, `config`, `completions`.
+  `voices`, `check`, `health`, `config`, `completions`.
 
 ### Realtime pipeline
 mic (native CoreAudio tap, `--device`) -> libav resample to 16 kHz mono +

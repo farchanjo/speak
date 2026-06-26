@@ -48,6 +48,12 @@ translation pipeline, is trivially configurable, and works fully over the networ
    (host `http://solaris:8800`, lang `pt-BR`, format `mp3`).
 6. **Health/config** — `speak health` checks `/health`; `speak config init|path|show`
    manages the TOML.
+6a. **Check / acceleration** — `speak check` reports the OS, CPU cores, libav
+   hwdevice types, and AudioToolbox decoders, and the active acceleration
+   policy (`SPEAK_HWACCEL=auto|off|<decoder>`). Decoding uses all-core frame
+   threading and, on macOS `auto`, AudioToolbox `*_at` decoders; audio has no
+   GPU path (server-side). Rotating logs are written under `~/.speak/logs`
+   (`SPEAK_LOG`, `SPEAK_LOG_DIR`; `SPEAK_LOG=off` disables).
 7. **Compatibility** — Works against any OpenAI-audio-compatible server via `--host`.
 8. **Output** — `--quiet`, `--json` where applicable; non-zero exit on HTTP/transport error.
 

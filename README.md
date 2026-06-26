@@ -56,6 +56,7 @@ speak translate foreign.mp3            # -> English text
 
 speak realtime --from en --to pt-BR --speak   # live mic translation, Ctrl-C to stop
 
+speak check                            # OS + local hw-accel probe + log path
 speak health                           # pretty-print /health JSON
 speak config init|path|show            # manage the config file
 speak completions zsh                  # shell completion script
@@ -70,6 +71,16 @@ Global flags: `--host --api-key --lang --voice -q/--quiet`
 (`say` additionally takes `--format mp3|opus|aac|flac|wav|pcm`).
 
 Environment: `SPEAK_HOST SPEAK_API_KEY SPEAK_LANG SPEAK_VOICE SPEAK_FORMAT`.
+
+### Acceleration and logging (env)
+
+- `SPEAK_HWACCEL=auto|off|<decoder>` — local libav acceleration. `auto`
+  (default) uses all CPU cores (frame threading) and, on macOS, the matching
+  AudioToolbox `*_at` decoder. Audio has no GPU/NVENC path (that hardware is
+  the server's). Run `speak check` to see what is available.
+- `SPEAK_LOG=<level|off>` — rotating file logs under `~/.speak/logs`
+  (`info` default; `off` disables). `SPEAK_LOG_DIR` overrides the directory.
+  Logs rotate daily with a capped retention.
 
 TOML at `~/.config/speak/config.toml` (honours `XDG_CONFIG_HOME`):
 

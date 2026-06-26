@@ -297,15 +297,33 @@ fn open_audio_decoder(
         .best(ff::media::Type::Audio)
         .ok_or_else(|| anyhow!("no audio stream in server response"))?;
     let index = stream.index();
+    // Prefer the best available local decoder (e.g. AudioToolbox `*_at` on
+    // macOS) when the accel policy allows; fall back to the default on failure.
+    if let Some(codec) = chosen_decoder(&stream) {
+        if let Ok(audio) = fresh_ctx(&stream)?.decoder().open_as(codec).and_then(|o| o.audio()) {
+            return Ok((index, audio));
+        }
+    }
+    let decoder = fresh_ctx(&stream)?.decoder().audio().context("open audio decoder")?;
+    Ok((index, decoder))
+}
+
+/// Build a decode context with libav frame threading across all local cores.
+/// Audio codecs have no GPU/NVENC path; that hardware is server-side.
+fn fresh_ctx(stream: &ff::Stream<'_>) -> Result<ff::codec::context::Context> {
     let mut ctx = ff::codec::context::Context::from_parameters(stream.parameters())?;
-    // Use all available local CPU cores where the codec supports threading.
-    // (Audio codecs have no GPU/NVENC path; that hardware is server-side.)
     ctx.set_threading(ff::codec::threading::Config {
         kind: ff::codec::threading::Type::Frame,
         count: 0,
     });
-    let decoder = ctx.decoder().audio().context("open audio decoder")?;
-    Ok((index, decoder))
+    Ok(ctx)
+}
+
+fn chosen_decoder(stream: &ff::Stream<'_>) -> Option<ff::Codec> {
+    let ctx = ff::codec::context::Context::from_parameters(stream.parameters()).ok()?;
+    let default_name = ff::codec::decoder::find(ctx.id())?.name().to_owned();
+    let name = crate::accel::resolve_decoder(&default_name)?;
+    ff::codec::decoder::find_by_name(&name)
 }
 
 fn drain(

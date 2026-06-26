@@ -20,6 +20,12 @@
   round-trip against solaris.
 - [x] T009 `config init` writes `~/.config/speak/config.toml`; install symlink `bin/speak`.
 - [x] T010 README + build env vars; `speckit validate`/`verify`.
+- [x] T011 Voice design/cloning/management + generation params (`say --instruct/--set`,
+  `voices add|list|rm`).
+- [x] T012 Realtime voice-selectable translate/repeat; warm pooled HTTP connection.
+- [x] T013 `accel.rs` + `speak check`: OS probe, local hw-accel (frame threading +
+  AudioToolbox), `SPEAK_HWACCEL` override.
+- [x] T014 `logging.rs`: rotating env-driven logs under `~/.speak/logs`.
 
 ## Dependencies
 
