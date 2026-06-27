@@ -181,7 +181,7 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   is absent (the `eventsource-stream` dependency is always linked; an optional
   `realtime-sse` Cargo feature may gate the parser out only for size-constrained
   builds) (ADR-0004).
-- [ ] T037 `[adapter:config]` layered config (flags > env > `~/.speak/config.toml`
+- [x] T037 `[adapter:config]` layered config (flags > env > `~/.speak/config.toml`
   > default), migration from `~/.config/speak`, `config init` commented template,
   `config show` value+origin, `config path`; implements `ConfigProvider`
   (ADR-0006). Load the `[retry]` section (mapped to `domain::RetryPolicy`) and
@@ -192,12 +192,19 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   `rust-version = "1.95"`, adding a `rust-toolchain.toml` (`channel = "1.95"`)
   (the deferral owner, ADR-0008): run `cargo fix --edition`, verify MSRV 1.95
   (`cargo msrv verify`) and a green build/clippy.
-  (Partial: the `[retry]` section now resolves into `domain::retry::RetryPolicy`
-  with full `SPEAK_RETRY_*` overrides and appears in `config show`; the
+  (Done: the `[retry]` section resolves into `domain::retry::RetryPolicy` with
+  full `SPEAK_RETRY_*` overrides and appears in `config show`; the
   edition-2024 / resolver-3 / rust-version-1.95 bump + `rust-toolchain.toml`
   landed (ADR-0008 resolved), including the `[tts.gen]` -> `gen_params` rename
-  (serde keeps the TOML key) and the let-chain / `unsafe`-block fixups; the
-  layered tree move and the `[http]` split remain pending.)
+  (serde keeps the TOML key) and the let-chain / `unsafe`-block fixups. The
+  `[http]` split (T037 final step) now resolves `translate_url`/`translate_model`/
+  `save_dir` under a dedicated `config::Http` section, each with its
+  `SPEAK_TRANSLATE_URL`/`SPEAK_TRANSLATE_MODEL`/`SPEAK_SAVE_DIR` env override and
+  code default; the resolver MIGRATES transparently from the legacy `[general]`
+  location (an unmigrated file's `[general].save_dir`/`translate_*` still resolve,
+  with the new `[http].*` winning when both are present), and `config show`
+  records the `http.*` keys + origins. `cli::say::resolve_out_path` now reads
+  `cfg.http.save_dir`; the commented template carries a new `[http]` section.)
 - [x] T038 `[adapter:libav]` record-output **encode**: hand-muxed WAV (no
   encoder) and FLAC via the libavcodec FLAC encoder through an in-memory AVIO
   **write** callback; implements `AudioEncoder` (`record --format wav|flac`,

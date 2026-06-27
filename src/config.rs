@@ -243,12 +243,23 @@ pub struct General {
     pub temp_dir: Option<PathBuf>,
     /// Log level filter.
     pub log: Option<String>,
-    /// Default save directory for `-o`.
-    pub save_dir: Option<PathBuf>,
-    /// Chat-completions translation endpoint.
+}
+
+/// `[http]` networking endpoints + output paths (T037, ADR-0006).
+///
+/// Splits the chat-MT translation endpoint and the default `-o` save directory
+/// out of `[general]` into their own section. Each key keeps its `SPEAK_*` env
+/// override and code default — no hardcoded tunables (FR-18) — and migrates
+/// transparently from the legacy `[general]` location (a file that still carries
+/// them under `[general]` keeps working; `config show` records the origin).
+#[derive(Debug, Clone)]
+pub struct Http {
+    /// Chat-completions translation endpoint (chat-MT Strategy, T039).
     pub translate_url: Option<String>,
     /// Chat translation model.
     pub translate_model: Option<String>,
+    /// Default save directory for `say -o`.
+    pub save_dir: Option<PathBuf>,
 }
 
 /// `[retry]` resilience policy — the TOML projection of the domain
@@ -281,6 +292,8 @@ pub struct Config {
     pub daemon: Daemon,
     /// General section.
     pub general: General,
+    /// HTTP endpoints + output paths section.
+    pub http: Http,
     /// Retry/backoff resilience policy.
     pub retry: Retry,
     entries: Vec<(String, String, Origin)>,
@@ -323,6 +336,8 @@ pub struct FileConfig {
     daemon: FileDaemon,
     #[serde(default)]
     general: FileGeneral,
+    #[serde(default)]
+    http: FileHttp,
     #[serde(default)]
     retry: FileRetry,
 }
@@ -436,9 +451,18 @@ struct FileGeneral {
     color: Option<bool>,
     temp_dir: Option<String>,
     log: Option<String>,
+    // Legacy `[general]` location for the keys that moved to `[http]`; retained
+    // so an unmigrated config file keeps resolving (see `Resolver::http`).
     save_dir: Option<String>,
     translate_url: Option<String>,
     translate_model: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct FileHttp {
+    translate_url: Option<String>,
+    translate_model: Option<String>,
+    save_dir: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -589,6 +613,7 @@ impl Resolver {
         let realtime = self.realtime();
         let daemon = self.daemon();
         let general = self.general();
+        let http = self.http();
         let retry = self.retry();
         Ok(Config {
             server,
@@ -599,6 +624,7 @@ impl Resolver {
             realtime,
             daemon,
             general,
+            http,
             retry,
             entries: self.entries,
         })
@@ -1067,26 +1093,48 @@ impl Resolver {
                 "SPEAK_LOG",
                 self.file.general.log.clone(),
             ),
-            save_dir: self
-                .opt(
-                    "general.save_dir",
-                    None,
-                    "SPEAK_SAVE_DIR",
-                    self.file.general.save_dir.clone(),
-                )
-                .map(PathBuf::from),
-            translate_url: self.opt(
-                "general.translate_url",
+        }
+    }
+
+    /// Resolve `[http]`, migrating each key from the legacy `[general]` location
+    /// when the file has not been re-sectioned yet (the `[http]` value wins).
+    fn http(&mut self) -> Http {
+        let translate_url = self.opt(
+            "http.translate_url",
+            None,
+            "SPEAK_TRANSLATE_URL",
+            self.file
+                .http
+                .translate_url
+                .clone()
+                .or_else(|| self.file.general.translate_url.clone()),
+        );
+        let translate_model = self.opt(
+            "http.translate_model",
+            None,
+            "SPEAK_TRANSLATE_MODEL",
+            self.file
+                .http
+                .translate_model
+                .clone()
+                .or_else(|| self.file.general.translate_model.clone()),
+        );
+        let save_dir = self
+            .opt(
+                "http.save_dir",
                 None,
-                "SPEAK_TRANSLATE_URL",
-                self.file.general.translate_url.clone(),
-            ),
-            translate_model: self.opt(
-                "general.translate_model",
-                None,
-                "SPEAK_TRANSLATE_MODEL",
-                self.file.general.translate_model.clone(),
-            ),
+                "SPEAK_SAVE_DIR",
+                self.file
+                    .http
+                    .save_dir
+                    .clone()
+                    .or_else(|| self.file.general.save_dir.clone()),
+            )
+            .map(PathBuf::from);
+        Http {
+            translate_url,
+            translate_model,
+            save_dir,
         }
     }
 
@@ -1205,6 +1253,32 @@ mod tests {
         if let Some(v) = prev {
             // TODO: Audit that the environment access only happens in single-threaded code.
             unsafe { std::env::set_var(name, v) };
+        }
+        out
+    }
+
+    /// Run `body` with all `names` guaranteed unset, restoring each afterwards.
+    ///
+    /// Acquires `ENV_LOCK` exactly once — `without_env` is NOT reentrant (the std
+    /// `Mutex` would deadlock), so multi-var scrubbing must take the lock once.
+    fn without_envs<T>(names: &[&str], body: impl FnOnce() -> T) -> T {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev: Vec<(String, Option<String>)> = names
+            .iter()
+            .map(|n| ((*n).to_owned(), std::env::var(n).ok()))
+            .collect();
+        for n in names {
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { std::env::remove_var(n) };
+        }
+        let out = body();
+        for (n, v) in prev {
+            match v {
+                // TODO: Audit that the environment access only happens in single-threaded code.
+                Some(v) => unsafe { std::env::set_var(&n, v) },
+                // TODO: Audit that the environment access only happens in single-threaded code.
+                None => unsafe { std::env::remove_var(&n) },
+            }
         }
         out
     }
@@ -1366,6 +1440,88 @@ mod tests {
             assert_eq!(value, "5");
             assert_eq!(*origin, Origin::Env);
             assert_eq!(cfg.retry.policy.max_retries, 5);
+        });
+    }
+
+    #[test]
+    fn http_section_resolves_save_dir_with_toml_origin() {
+        without_env("SPEAK_SAVE_DIR", || {
+            let file = FileConfig {
+                http: FileHttp {
+                    save_dir: Some("/srv/audio".into()),
+                    ..FileHttp::default()
+                },
+                ..FileConfig::default()
+            };
+            let cfg = Resolver::new(GlobalFlags::default(), file)
+                .finish()
+                .unwrap();
+            let (_, value, origin) = entry(&cfg, "http.save_dir");
+            assert_eq!(value, "/srv/audio");
+            assert_eq!(*origin, Origin::Toml);
+            assert_eq!(
+                cfg.http.save_dir.as_deref(),
+                Some(std::path::Path::new("/srv/audio"))
+            );
+        });
+    }
+
+    #[test]
+    fn http_migrates_translate_keys_from_legacy_general_section() {
+        // An unmigrated file with the keys still under `[general]` keeps working.
+        without_envs(&["SPEAK_TRANSLATE_URL", "SPEAK_TRANSLATE_MODEL"], || {
+            let file = FileConfig {
+                general: FileGeneral {
+                    translate_url: Some("http://legacy/chat".into()),
+                    translate_model: Some("legacy-mt".into()),
+                    ..FileGeneral::default()
+                },
+                ..FileConfig::default()
+            };
+            let cfg = Resolver::new(GlobalFlags::default(), file)
+                .finish()
+                .unwrap();
+            let (_, url, url_origin) = entry(&cfg, "http.translate_url");
+            assert_eq!(url, "http://legacy/chat");
+            assert_eq!(*url_origin, Origin::Toml);
+            assert_eq!(
+                cfg.http.translate_url.as_deref(),
+                Some("http://legacy/chat")
+            );
+            assert_eq!(cfg.http.translate_model.as_deref(), Some("legacy-mt"));
+        });
+    }
+
+    #[test]
+    fn http_section_wins_over_legacy_general_for_same_key() {
+        without_env("SPEAK_TRANSLATE_URL", || {
+            let file = FileConfig {
+                general: FileGeneral {
+                    translate_url: Some("http://legacy/chat".into()),
+                    ..FileGeneral::default()
+                },
+                http: FileHttp {
+                    translate_url: Some("http://new/chat".into()),
+                    ..FileHttp::default()
+                },
+                ..FileConfig::default()
+            };
+            let cfg = Resolver::new(GlobalFlags::default(), file)
+                .finish()
+                .unwrap();
+            assert_eq!(cfg.http.translate_url.as_deref(), Some("http://new/chat"));
+        });
+    }
+
+    #[test]
+    fn env_overrides_http_translate_url() {
+        with_env("SPEAK_TRANSLATE_URL", "http://env/chat", || {
+            let cfg = Resolver::new(GlobalFlags::default(), FileConfig::default())
+                .finish()
+                .unwrap();
+            let (_, value, origin) = entry(&cfg, "http.translate_url");
+            assert_eq!(value, "http://env/chat");
+            assert_eq!(*origin, Origin::Env);
         });
     }
 

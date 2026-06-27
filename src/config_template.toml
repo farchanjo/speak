@@ -88,9 +88,11 @@ json = false
 color = true
 # temp_dir = "/tmp"
 # log = "info"                # SPEAK_LOG level; "off" disables file logging
-# save_dir = "~/Audio"        # default directory for say -o
-# translate_url = "http://solaris:8800/v1/chat/completions"
-# translate_model = "gpt-4o-mini"
+
+[http]                        # networking endpoints + output paths
+# save_dir = "~/Audio"        # SPEAK_SAVE_DIR; default directory for say -o
+# translate_url = "http://solaris:8800/v1/chat/completions"   # SPEAK_TRANSLATE_URL
+# translate_model = "gpt-4o-mini"                             # SPEAK_TRANSLATE_MODEL
 
 [retry]                       # exponential-backoff + jitter resilience policy
 # max_retries = 3             # SPEAK_RETRY_MAX (total tries = max_retries + 1)

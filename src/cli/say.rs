@@ -76,10 +76,10 @@ async fn write_output(cfg: &Config, path: &Path, bytes: &[u8]) -> Result<String>
     Ok(path.display().to_string())
 }
 
-/// Resolve a bare `-o` filename under `[general].save_dir` (FR-1).
+/// Resolve a bare `-o` filename under `[http].save_dir` (FR-1).
 fn resolve_out_path(cfg: &Config, path: &Path) -> PathBuf {
     match (
-        &cfg.general.save_dir,
+        &cfg.http.save_dir,
         path.is_absolute() || path.parent().is_some_and(|p| !p.as_os_str().is_empty()),
     ) {
         (Some(dir), false) => dir.join(path),
