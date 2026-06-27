@@ -140,18 +140,19 @@ selects the capture side: `input` (mic/line-in, default) or `output` (host/sound
 `output` uses a **native macOS Core Audio tap** (macOS 14.4+, ADR-0015): a stereo global
 `CATapDescription` → process tap → private aggregate device, read directly by id via an
 `AudioDeviceIOProc` (NOT AVAudioEngine — the default-input path binds to the real input device).
-**Permission** (verified working): the tap needs the macOS audio-capture grant
-(`kTCCServiceAudioCapture`). `make app` builds the signed `target/speak.app` (embedded
+**Permission** (verified working, seamless): the tap needs the macOS audio-capture grant
+(`kTCCServiceAudioCapture`). One-time setup: (1) `make app` → signed `target/speak.app` (embedded
 `NSAudioCaptureUsageDescription` + `com.apple.security.device.audio-input`, Apple-Development
-identity). Grant it once via LaunchServices so `speak.app` is the *responsible* TCC subject:
-`open target/speak.app --args record -s output -o /tmp/x.wav -d 3` → **Allow** the prompt (grant
-persists by team id — confirmed: captured a tone at −24 dBFS). TCC attributes to the *responsible
-process*: `open`-launched `speak.app` holds the grant; **direct-exec from a shell makes the shell
-responsible**, so for seamless `speak transcribe --stream --source output` from a terminal, grant
-that terminal app audio-capture too (run the bundle binary from it once and allow). Without the
-grant the tap runs but returns silence (a `tracing` warning names the fix). **No-permission
-fallback**: route the output to a virtual-loopback device (**BlackHole**) and capture it as an
-input (`--source input -d <blackhole-id>`).
+identity); (2) grant once via LaunchServices — `open target/speak.app --args record -s output -o
+/tmp/x.wav -d 3` → **Allow** the prompt (persists by team id). Thereafter **direct-exec works from
+any terminal**: `target/speak.app/Contents/MacOS/speak transcribe --stream --source output` — the
+output-capture commands **self-re-exec with a TCC responsibility-disclaim** (ADR-0016: `posix_spawn`
++ `responsibility_spawnattrs_setdisclaim`), making `speak` its own TCC subject (`ltd.eonf.speak`)
+regardless of the launching terminal (confirmed: direct-exec captured a tone at -27.6 dBFS). Run the
+**bundle** binary (`speak.app/Contents/MacOS/speak`), not `target/debug/speak` — the grant keys on
+the signed identity. Without the grant the tap runs but returns silence (a `tracing` warning names
+the fix). **No-permission fallback**: route the output to a virtual-loopback device (**BlackHole**)
+and capture it as an input (`--source input -d <blackhole-id>`).
 
 ---
 

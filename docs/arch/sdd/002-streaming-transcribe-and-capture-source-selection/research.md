@@ -136,11 +136,18 @@ loop. Findings that changed the design:
    and allow), or a future self-`disclaim`-responsibility re-exec (the pattern
    terminal emulators use) so `speak` is always its own subject.
 
-Net: the native tap is **code-complete and confirmed working** (audio captured at
-−24 dBFS through the granted bundle). Delivering audio depends only on the OS
-`kTCCServiceAudioCapture` grant + the responsible-process being a granted subject
-(`make app` → `open` to grant; grant the terminal for direct-exec). The all-zero
-case is surfaced as a `tracing` warning pointing at the fix.
+7. **Seamless via TCC disclaim (ADR-0016).** The responsible-process caveat is
+   removed: the output-capture commands self-re-exec via `posix_spawn` with
+   `responsibility_spawnattrs_setdisclaim`, making `speak` its own TCC subject
+   (`ltd.eonf.speak`) regardless of the launching terminal. Verified:
+   **direct-exec** of the bundle binary from an arbitrary shell captured a tone
+   at **mean −27.6 dBFS / peak −8.5 dBFS** — no `open`, no terminal grant.
+
+Net: the native tap is **code-complete and confirmed working, seamlessly**.
+After a one-time `make app` + grant (`open speak.app` → Allow), direct-exec of
+the bundle binary captures host output from any terminal (the disclaim re-exec
+makes `speak` its own granted TCC subject). The all-zero (no-grant / ad-hoc
+binary) case is surfaced as a `tracing` warning pointing at the fix.
 
 ## Interim
 
