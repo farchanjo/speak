@@ -90,8 +90,12 @@ async fn dispatch(cli: Cli, cfg: &Config) -> Result<()> {
         Command::Say(args) => {
             cli::say::run(&factory.facade(args.native)?, cfg, &globals, args, out).await
         }
-        Command::Transcribe(args) => cli::transcribe::run(&factory.facade(false)?, cfg, args).await,
-        Command::Translate(args) => cli::translate::run(&factory.facade(false)?, cfg, args).await,
+        Command::Transcribe(args) => {
+            cli::transcribe::run(&factory.facade(false)?, cfg, args, out).await
+        }
+        Command::Translate(args) => {
+            cli::translate::run(&factory.facade(false)?, cfg, args, out).await
+        }
         Command::Realtime(args) => cli::realtime::run(cfg, &globals, args).await,
         Command::Voices { action } => cli::voices::run(&factory.facade(false)?, action, out).await,
         Command::Daemon(args) => daemon::run(cfg, args).await,

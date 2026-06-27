@@ -9,13 +9,19 @@ use anyhow::{Context, Result};
 
 use speak::config::Config;
 use speak::domain::language::Language;
+use speak::ports::presenter::Presenter;
 
 use super::AppFacade;
 use super::args::TranslateArgs;
 use super::file_name;
 
-/// Run the `translate` subcommand.
-pub async fn run(facade: &AppFacade, _cfg: &Config, args: TranslateArgs) -> Result<()> {
+/// Run the `translate` subcommand, emitting the translation through the Presenter.
+pub async fn run(
+    facade: &AppFacade,
+    _cfg: &Config,
+    args: TranslateArgs,
+    presenter: &mut dyn Presenter,
+) -> Result<()> {
     let bytes = tokio::fs::read(&args.file)
         .await
         .with_context(|| format!("reading {}", args.file.display()))?;
@@ -25,6 +31,5 @@ pub async fn run(facade: &AppFacade, _cfg: &Config, args: TranslateArgs) -> Resu
     let _ = args.format;
     let target = Language::parse("en")?;
     let text = facade.translate(&bytes, &filename, &target).await?;
-    println!("{text}");
-    Ok(())
+    presenter.line(&text)
 }

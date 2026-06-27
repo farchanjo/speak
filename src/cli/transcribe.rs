@@ -7,14 +7,20 @@ use anyhow::{Context, Result};
 
 use speak::config::Config;
 use speak::domain::language::Language;
+use speak::ports::presenter::Presenter;
 use speak::ports::transcriber::TranscribeRequest;
 
 use super::AppFacade;
 use super::args::TranscribeArgs;
 use super::file_name;
 
-/// Run the `transcribe` subcommand.
-pub async fn run(facade: &AppFacade, cfg: &Config, args: TranscribeArgs) -> Result<()> {
+/// Run the `transcribe` subcommand, emitting the transcript through the Presenter.
+pub async fn run(
+    facade: &AppFacade,
+    cfg: &Config,
+    args: TranscribeArgs,
+    presenter: &mut dyn Presenter,
+) -> Result<()> {
     let bytes = tokio::fs::read(&args.file)
         .await
         .with_context(|| format!("reading {}", args.file.display()))?;
@@ -28,6 +34,5 @@ pub async fn run(facade: &AppFacade, cfg: &Config, args: TranscribeArgs) -> Resu
         format: args.format.as_str(),
     };
     let text = facade.transcribe(&req).await?;
-    println!("{text}");
-    Ok(())
+    presenter.line(&text)
 }
