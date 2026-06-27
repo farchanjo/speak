@@ -195,9 +195,19 @@ mod tests {
     /// Build a `SseRealtimeStream` over an in-memory SSE byte stream (no network),
     /// pinning the error type to `reqwest::Error` to match the production alias.
     fn stream_over(raw: &'static str) -> SseRealtimeStream {
-        let bytes = futures_util::stream::iter(vec![Ok::<&[u8], reqwest::Error>(raw.as_bytes())]);
+        stream_over_chunks(vec![raw.as_bytes()])
+    }
+
+    /// Build a `SseRealtimeStream` over several byte chunks so a single frame can
+    /// straddle chunk boundaries — mirroring `reqwest::bytes_stream` delivering a
+    /// frame in pieces, which the eventsource decoder must buffer and reassemble.
+    fn stream_over_chunks(chunks: Vec<&'static [u8]>) -> SseRealtimeStream {
+        let items: Vec<_> = chunks
+            .into_iter()
+            .map(Ok::<&[u8], reqwest::Error>)
+            .collect();
         SseRealtimeStream {
-            frames: Box::pin(bytes.eventsource()),
+            frames: Box::pin(futures_util::stream::iter(items).eventsource()),
         }
     }
 
@@ -224,6 +234,50 @@ mod tests {
             })
         );
         assert_eq!(stream.recv().await.unwrap(), Some(RealtimeFrame::Done));
+        assert_eq!(stream.recv().await.unwrap(), None, "stream is exhausted");
+    }
+
+    #[tokio::test]
+    async fn recv_reassembles_a_frame_split_across_byte_chunks() {
+        // The `transcript` frame's data line arrives in two byte chunks; the
+        // eventsource decoder must buffer until the blank-line terminator lands.
+        let mut stream = stream_over_chunks(vec![
+            b"event: transcript\ndata: {\"te",
+            b"xt\":\"split frame\",\"seq\":0}\n\n",
+            b"event: done\ndata: {}\n\n",
+        ]);
+        assert_eq!(
+            stream.recv().await.unwrap(),
+            Some(RealtimeFrame::Transcript {
+                text: "split frame".into(),
+            })
+        );
+        assert_eq!(stream.recv().await.unwrap(), Some(RealtimeFrame::Done));
+        assert_eq!(stream.recv().await.unwrap(), None, "stream is exhausted");
+    }
+
+    #[tokio::test]
+    async fn recv_surfaces_translation_then_error_frames() {
+        // A non-English target streams a `translation` frame; a mid-stream
+        // `error` frame is surfaced as `RealtimeFrame::Error` (not a transport
+        // drop) so the use case can terminate cleanly rather than reconnect.
+        let raw = concat!(
+            "event: translation\ndata: {\"text\":\"bonjour\",\"to\":\"fr\"}\n\n",
+            "event: error\ndata: {\"message\":\"backend down\"}\n\n",
+        );
+        let mut stream = stream_over(raw);
+        assert_eq!(
+            stream.recv().await.unwrap(),
+            Some(RealtimeFrame::Translation {
+                text: "bonjour".into(),
+            })
+        );
+        assert_eq!(
+            stream.recv().await.unwrap(),
+            Some(RealtimeFrame::Error {
+                message: "backend down".into(),
+            })
+        );
         assert_eq!(stream.recv().await.unwrap(), None, "stream is exhausted");
     }
 }

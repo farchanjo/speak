@@ -180,4 +180,37 @@ mod tests {
         let resp: ChatResponse = serde_json::from_str(r#"{"choices":[]}"#).unwrap();
         assert!(resp.content().is_none());
     }
+
+    #[test]
+    fn chat_body_uses_the_given_model_and_normalized_target() {
+        let pt = Language::parse("pt-BR").unwrap();
+        let body = chat_body("custom-mt-7b", "thank you", &pt);
+        assert_eq!(body["model"], json!("custom-mt-7b"));
+        // The system prompt embeds the normalized target tag, whatever it is.
+        assert_eq!(
+            body["messages"][0]["content"],
+            json!(format!(
+                "Translate into {}. Output only the translation.",
+                pt.as_str()
+            ))
+        );
+        assert_eq!(body["messages"][1]["content"], json!("thank you"));
+    }
+
+    #[test]
+    fn parses_first_of_several_choices() {
+        let resp: ChatResponse = serde_json::from_str(
+            r#"{"choices":[{"message":{"content":"primero"}},{"message":{"content":"segundo"}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(resp.content().as_deref(), Some("primero"));
+    }
+
+    #[test]
+    fn tolerates_a_choice_with_missing_content() {
+        // `content` defaults to empty (serde default), so a content-less message
+        // parses rather than erroring — the routing degrades to an empty result.
+        let resp: ChatResponse = serde_json::from_str(r#"{"choices":[{"message":{}}]}"#).unwrap();
+        assert_eq!(resp.content().as_deref(), Some(""));
+    }
 }

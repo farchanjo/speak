@@ -553,4 +553,87 @@ mod tests {
             }
         );
     }
+
+    #[tokio::test]
+    async fn drive_stream_collects_translation_text_and_plays_each_audio_frame() {
+        use crate::application::fakes::FakeStream;
+
+        let speech = FakeSpeech::default();
+        let audio = FakeAudio::default();
+        let codec = FakeCodec;
+        let uc = RealtimeUseCase::new(&speech, &audio, &codec);
+        let o = opts(RealtimeMode::Translate);
+        // A realistic server-side translate stream: a source transcript, its
+        // target-language translation, two synthesized audio chunks, then Done.
+        let mut stream = FakeStream::new(vec![
+            RealtimeFrame::Transcript {
+                text: "bonjour le monde".into(),
+            },
+            RealtimeFrame::Translation {
+                text: "hello world".into(),
+            },
+            RealtimeFrame::Audio {
+                data: b"PART1".to_vec(),
+                format: Some("mp3".into()),
+                seq: Some(0),
+            },
+            RealtimeFrame::Audio {
+                data: b"PART2".to_vec(),
+                format: Some("mp3".into()),
+                seq: Some(1),
+            },
+            RealtimeFrame::Done,
+        ]);
+
+        let mut translations = Vec::new();
+        let mut played = 0_usize;
+        uc.drive_stream(&mut stream, &o, |e| match e {
+            RealtimeEvent::Text {
+                kind: FrameKind::Translation,
+                text,
+            } => translations.push(text.clone()),
+            RealtimeEvent::Played => played += 1,
+            _ => {}
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(translations, vec!["hello world".to_owned()]);
+        assert_eq!(played, 2, "each audio frame is decoded and played");
+        assert_eq!(audio.plays.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn drive_stream_completes_when_the_stream_ends_without_a_done_frame() {
+        use crate::application::fakes::FakeStream;
+
+        let speech = FakeSpeech::default();
+        let audio = FakeAudio::default();
+        let codec = FakeCodec;
+        let uc = RealtimeUseCase::new(&speech, &audio, &codec);
+        let o = opts(RealtimeMode::Translate);
+        // No terminal frame: natural exhaustion (recv -> None) must end the loop
+        // without hanging or erroring (a dropped-but-not-failed stream).
+        let mut stream = FakeStream::new(vec![
+            RealtimeFrame::Transcript { text: "uno".into() },
+            RealtimeFrame::Translation { text: "one".into() },
+        ]);
+
+        let mut events = Vec::new();
+        uc.drive_stream(&mut stream, &o, |e| events.push(e.clone()))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            events,
+            vec![
+                text_event(FrameKind::Transcript, "uno".into()),
+                text_event(FrameKind::Translation, "one".into()),
+            ]
+        );
+        assert!(
+            audio.plays.lock().unwrap().is_empty(),
+            "no audio frames to play"
+        );
+    }
 }

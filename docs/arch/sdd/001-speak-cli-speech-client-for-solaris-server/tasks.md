@@ -199,7 +199,21 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   LIVE-VERIFIED against solaris (`tests/integration.rs::realtime_sse_streams_
   transcript_and_audio`): a French clip minted by the Synthesizer, POSTed with
   `translate=true to=en instruct="Female, British Accent"`, streamed back
-  `transcript` + `audio` + `done` frames in ~6 s.)
+  `transcript` + `audio` + `done` frames in ~6 s.
+  STAGE 8 re-validation (2026-06-27): the live server no longer advertises the
+  realtime route — `GET`/`POST /v1/realtime/translate` (and `/v1/realtime`,
+  `/realtime/translate`, `/v1/audio/realtime`) all return `404 {"detail":"Not
+  Found"}`, so the runtime `supports_realtime` probe reports `false` and the
+  composition root selects the chunked fallback (the documented ADR-0004
+  behavior). Driving the real `SseRealtimeClient.stream()` with an English
+  "hello world" chunk (76 844-byte WAV minted by the openai Synthesizer) and
+  `translate=true to=fr` confirmed the adapter POSTs the multipart form, tags the
+  404 as `HttpStatusError`, and the `ReconnectingStream` decorator FAST-FAILS
+  (404 is outside the `connect|timeout|5xx|429` retry set) rather than looping —
+  surfacing `server returned 404`. The chunked fallback's MT leg was verified
+  live in the same run: `POST /v1/chat/completions` (`qwen2.5-14b-instruct`)
+  translated "hello world" -> "bonjour le monde" (en->fr), matching the
+  `chatmt` adapter's request shape.)
 - [x] T037 `[adapter:config]` layered config (flags > env > `~/.speak/config.toml`
   > default), migration from `~/.config/speak`, `config init` commented template,
   `config show` value+origin, `config path`; implements `ConfigProvider`
@@ -494,10 +508,18 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
 
 - [x] T060 `[build]` `cargo build --release` GREEN; `cargo clippy --all-targets
   -- -D warnings`; `cargo fmt --all -- --check`; `cargo test`/`nextest`.
-  (STAGE 7: all four gates exit 0. `cargo nextest run` = 225 hermetic tests
-  passed / 0 failed; `cargo nextest run --features integration` = 230 passed
-  against the live `http://solaris:8800` server. clippy `-D warnings` clean,
-  `fmt --check` clean.)
+  (STAGE 8 (SSE/chat-MT validation): all four gates exit 0. `cargo nextest run`
+  = 244 hermetic tests passed / 0 failed; `cargo nextest run --features
+  integration` = 250 passed against the live `http://solaris:8800` server.
+  clippy `-D warnings` clean, `fmt --check` clean. The realtime-path coverage was
+  hardened: the `sse` adapter gained a frame reassembled across byte-stream
+  boundaries (`recv_reassembles_a_frame_split_across_byte_chunks`) and a
+  translation-then-error scripted stream; the `chatmt` adapter gained
+  given-model/normalized-target body shape plus multi-choice / missing-content
+  response parsing; the `realtime` use case gained two `FakeStream` drives — one
+  collecting the translation text while playing each audio frame, one completing
+  on natural exhaustion without a `Done` frame. Earlier STAGE 7 baseline was 225
+  hermetic / 230 integration.)
 - [x] T063 `[build]` Resilience + zero-magic-numbers gate (FR-17 / FR-18):
   the `RetryPolicy` is unit-tested in `src/domain/retry.rs` (attempt count, delay
   growth, jitter bounds, `retry_on` classification — 11 tests), and STAGE 7 adds
