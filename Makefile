@@ -32,7 +32,7 @@ CODESIGN_OPTS     ?=
 SIGN_BIN          ?= $(BIN)
 
 .DEFAULT_GOAL := help
-.PHONY: help build build-release build-dbg run install link sign \
+.PHONY: help build build-release build-dbg run install link sign app \
         check clippy clippy-strict clippy-fix fmt fmt-fix test test-int watch expand doc lint gates \
         debug debug-bt debug-panic debug-attach \
         spec validate verify analyze \
@@ -80,6 +80,14 @@ sign: ## Apple code-sign $(SIGN_BIN) (macOS only; auto-detects identity, ad-hoc 
 		echo "✅ signed + verified"; \
 		codesign --display --verbose=2 "$(SIGN_BIN)" 2>&1 \
 			| grep -E 'Identifier=|Authority=|TeamIdentifier=|Signature=' || true; \
+	fi
+
+## ---------------------------------------------------------------- macos app bundle
+app: build ## Signed speak.app so `--source output` can get the audio-capture TCC grant (macOS, ADR-0015)
+	@if [ "$(UNAME_S)" != "Darwin" ]; then \
+		echo "⏭  app bundle skipped — not macOS (uname=$(UNAME_S))"; \
+	else \
+		CODESIGN_IDENTITY="$(CODESIGN_IDENTITY)" ./scripts/macos-bundle.sh target/debug/speak target/speak.app; \
 	fi
 
 ## ---------------------------------------------------------------- debug / quality
