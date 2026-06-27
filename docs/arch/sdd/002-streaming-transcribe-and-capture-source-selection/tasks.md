@@ -42,18 +42,24 @@ feature); exact sequence, signatures, Cargo features, and friction points are in
 `research.md`. Implementation is a write → `make build-dbg` → run-on-Mac → lldb
 loop (CLAUDE.md §7), so it is done with the device in the loop, not headless.
 
-- [ ] T011 [adapters/coreaudio/macos] `tap.rs::capture_output`: stereo global
+- [x] T011 [adapters/coreaudio/macos] `tap.rs::capture_output`: stereo global
       `CATapDescription` → `AudioHardwareCreateProcessTap` → private auto-start
-      `AudioHardwareCreateAggregateDevice` embedding the tap → reuse
-      `engine::capture(Some(agg_id), secs)` → RAII teardown. Override
-      `CoreAudio::capture_for` `Output` arm. See `research.md`. (FR-5)
-- [ ] T012 [adapters/coreaudio/macos] Permission + availability: detect
-      macOS < 14.4 / `OSStatus` failures / denied TCC capture and return the
-      actionable error naming the BlackHole fallback (FR-9).
-- [ ] T013 [verify] On-device validation (audio playing, permission granted) of
-      `transcribe --stream --source output`, `record --source output`,
-      `realtime --source output`; lldb-read `tap_id`/`agg_id`/`OSStatus`/RMS.
-      Bind the four pending scenarios in the acceptance trace.
+      `AudioHardwareCreateAggregateDevice` → read the aggregate **by id** via
+      `AudioDeviceCreateIOProcID` + `AudioDeviceStart`/`Stop` (NOT
+      `AVAudioEngine`/default-input — that captured the real input device); RAII
+      teardown. `CoreAudio::capture_for` `Output` arm. Verified on-device:
+      construction OSStatus 0, IO proc reads the correct 2-ch aggregate. (FR-5)
+- [x] T012 [adapters/coreaudio/macos + packaging] Availability/permission: the
+      non-macOS stub + the BlackHole-fallback error (FR-9); the all-zero-capture
+      `tracing` warning that names the audio-capture grant; `Info.plist`
+      (`NSAudioCaptureUsageDescription`, embedded via `build.rs`),
+      `packaging/macos/speak.entitlements` (`com.apple.security.device.audio-input`),
+      `scripts/macos-bundle.sh` + `make app` → signed `target/speak.app`.
+- [ ] T013 [verify] FINAL on-device audio confirmation is gated on the one-time
+      interactive `kTCCServiceAudioCapture` grant (`make app` → run the bundle →
+      Allow) — an OS-permission step, not a code defect (see `research.md`).
+      Construction + device routing verified; binding the four pending
+      output-source scenarios in the acceptance trace awaits the grant.
 
 ## Dependencies
 

@@ -137,9 +137,16 @@ Global flags: `-H/--host -K/--api-key -L/--lang -C/--voice -J/--json -q/--quiet 
 shares the realtime capture flags (`-d -I -c/--chunk -x -F`). `-s/--source input|output` (ADR-0015,
 shared by `transcribe --stream` / `realtime` / `record`; overrides `[audio.capture].source`)
 selects the capture side: `input` (mic/line-in, default) or `output` (host/sound-card playback).
-`output` uses a **native macOS Core Audio tap** (macOS 14.4+, Phase 2); until that lands, route the
-output to a virtual-loopback device (**BlackHole**) and capture it as an input
-(`--source input -d <blackhole-id>`) — the command prints that hint if `--source output` is unavailable.
+`output` uses a **native macOS Core Audio tap** (macOS 14.4+, ADR-0015): a stereo global
+`CATapDescription` → process tap → private aggregate device, read directly by id via an
+`AudioDeviceIOProc` (NOT AVAudioEngine — the default-input path binds to the real input device).
+**Permission**: the tap needs the macOS audio-capture grant (`kTCCServiceAudioCapture`); a bare
+CLI can't obtain it, so run the **signed bundle** — `make app` builds `target/speak.app`
+(embedded `NSAudioCaptureUsageDescription` + `com.apple.security.device.audio-input`); launch
+`target/speak.app/Contents/MacOS/speak --source output …` once and **allow** the prompt (grant
+persists by team id). Without the grant the tap runs but returns silence (logged as a `tracing`
+warning). **No-permission fallback**: route the output to a virtual-loopback device (**BlackHole**)
+and capture it as an input (`--source input -d <blackhole-id>`).
 
 ---
 

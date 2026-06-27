@@ -87,6 +87,46 @@ with audio playing → `make debug-attach` / lldb to read `tap_id`, `agg_id`,
 main compile-iteration point and is fastest to settle with the compiler in the
 loop.
 
+## On-device validation outcome (2026-06-27)
+
+Implemented and verified on macOS 26.5 (M-series) with the real hardware in the
+loop. Findings that changed the design:
+
+1. **IOProc, not AVAudioEngine.** The first cut reused the existing
+   `AVAudioEngine` input capture by swapping the system default input to the tap
+   aggregate (ADR-0011 pattern). It captured the **real default input device**
+   (a 16-channel SSL 12), not the tap — the default-input swap does not redirect
+   `AVAudioEngine` to a private aggregate. Fixed by reading the aggregate
+   **directly by `AudioObjectID`** via `AudioDeviceCreateIOProcID` +
+   `AudioDeviceStart`/`Stop` (the fn-pointer variant, `*mut c_void` client data —
+   avoids `dispatch2`). After the fix the IO proc reads the correct **2-channel**
+   tap aggregate.
+2. **Construction is correct.** `AudioHardwareCreateProcessTap`,
+   `AudioHardwareCreateAggregateDevice`, `AudioDeviceCreateIOProcID`, and
+   `AudioDeviceStart` all return `OSStatus 0`; the IO proc fires and accumulates
+   the full frame count from the right device.
+3. **The remaining blocker is TCC, not code.** Captured buffers are **all-zero**
+   (max_abs 0). The macOS signature of a process tap **without the
+   `kTCCServiceAudioCapture` authorization**: the tap runs but is muted. Verified
+   against `~/Library/Application Support/com.apple.TCC/TCC.db` — apps that tap
+   successfully (Discord, Rogue Amoeba) hold `kTCCServiceAudioCapture=2`; our run
+   does not.
+4. **A bare CLI can't get the grant.** TCC attributes a CLI's request to the
+   parent terminal (or, under automation, the launching app); no inline prompt
+   surfaces and `tccutil` cannot add grants. The binary must be a **signed bundle
+   subject**: `make app` builds `target/speak.app` with the embedded
+   `NSAudioCaptureUsageDescription` (via `build.rs` `-sectcreate`) and the
+   `com.apple.security.device.audio-input` entitlement, signed with the
+   Apple-Development identity (stable team id). Launching the in-bundle binary
+   interactively surfaces the audio-capture prompt; allowing it persists the
+   grant. This last step is **interactive and user-environment-specific** — it
+   cannot be completed from a headless/automation shell.
+
+Net: the native tap is **code-complete and verified-correct**; delivering audio
+is gated solely on the one-time interactive `kTCCServiceAudioCapture` grant
+(`make app` → run the bundle → Allow), which is an OS-permission step, not a code
+defect. The all-zero case is surfaced as a `tracing` warning pointing at the fix.
+
 ## Interim
 
 Output capture works **today** via the BlackHole fallback (FR-6):
