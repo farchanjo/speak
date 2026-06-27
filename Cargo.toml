@@ -90,3 +90,11 @@ opt-level = 3
 lto = true
 strip = true
 codegen-units = 1
+
+# Optimized build that KEEPS debug symbols (DWARF) — for lldb-grounded debugging
+# of release-shaped behaviour. Same codegen as `release`, symbols retained.
+# Build: `cargo build --profile release-dbg` -> target/release-dbg/speak
+[profile.release-dbg]
+inherits = "release"
+strip = false
+debug = true

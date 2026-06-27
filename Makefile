@@ -18,8 +18,9 @@ DIST    := dist
 LOGDIR  := $(HOME)/.speak/logs
 
 .DEFAULT_GOAL := help
-.PHONY: help build build-release run install link \
+.PHONY: help build build-release build-dbg run install link \
         check clippy fmt fmt-fix test test-int watch expand doc lint gates \
+        debug debug-bt debug-panic debug-attach \
         spec validate verify analyze \
         release release-all \
         daemon daemon-status daemon-stop daemon-restart logs health \
@@ -75,6 +76,24 @@ doc: ## Build + open API docs (private items)
 	$(CARGO) doc --no-deps --document-private-items --open
 
 lint: clippy fmt ## clippy + fmt-check
+
+## ---------------------------------------------------------------- debug (headless lldb)
+# Drive lldb non-interactively to ground analysis on real runtime state instead
+# of guessing from source. See scripts/debug/ and CLAUDE.md §10.
+build-dbg: ## Optimized build WITH symbols (-> target/release-dbg/speak)
+	$(CARGO) build --profile release-dbg
+
+debug: build ## Interactive rust-lldb session: make debug ARGS='config path'
+	rust-lldb -- target/debug/speak $(ARGS)
+
+debug-bt: build ## Headless: break at LOC, dump backtrace+exprs. LOC='--file main.rs --line 111' ARGS='config path' [P='p cfg->server.host']
+	scripts/debug/rust-lldb-batch.sh -k '$(LOC)' -c 'thread backtrace -c 12' $(if $(P),-c '$(P)',) -- $(ARGS)
+
+debug-panic: build ## Headless: run ARGS, catch panic, dump backtrace+locals. make debug-panic ARGS='say hi'
+	scripts/debug/rust-panic-trace.sh -- $(ARGS)
+
+debug-attach: ## Headless: all-thread state of the live daemon (read-only). make debug-attach [PID=1234]
+	scripts/debug/rust-lldb-attach.sh $(PID)
 
 ## ---------------------------------------------------------------- spec gates
 validate: ## speckit validate
