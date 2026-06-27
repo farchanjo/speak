@@ -1850,6 +1850,7 @@ dependencies = [
  "eventsource-stream",
  "ffmpeg-the-third",
  "futures-util",
+ "libc",
  "nix",
  "objc2",
  "objc2-audio-toolbox",
