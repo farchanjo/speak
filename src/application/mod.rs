@@ -28,5 +28,22 @@ pub use transcribe::TranscribeUseCase;
 pub use translate::TranslateUseCase;
 pub use voices::VoicesUseCase;
 
+/// Select one input channel from a multi-channel capture, or keep it whole.
+///
+/// `None` keeps the full buffer (the default mono-downmix path). `Some(ch)`
+/// extracts that single 0-based channel so a mic on one input of a many-channel
+/// interface (e.g. SSL 12) is not attenuated by averaging every channel into the
+/// ASR/record downmix (ADR-0013). Errors when `ch` is out of range.
+pub(crate) fn pick_input_channel(
+    pcm: crate::domain::pcm::PcmBuffer,
+    channel: Option<u16>,
+) -> anyhow::Result<crate::domain::pcm::PcmBuffer> {
+    let Some(ch) = channel else { return Ok(pcm) };
+    let channels = pcm.channels();
+    pcm.select_channel(ch).ok_or_else(|| {
+        anyhow::anyhow!("input channel {ch} is out of range (device exposes {channels} channels)")
+    })
+}
+
 #[cfg(test)]
 pub(crate) mod fakes;

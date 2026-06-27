@@ -82,6 +82,28 @@ impl PcmBuffer {
     pub fn is_empty(&self) -> bool {
         self.samples.is_empty()
     }
+
+    /// Extract a single 0-based `channel` into a mono buffer (same sample rate).
+    ///
+    /// Returns `None` when the buffer is zero-channel or `channel` is out of
+    /// range. Picks one input channel from a multi-channel capture device (e.g. a
+    /// mic on input 1 of a 16-in interface) instead of averaging every channel
+    /// into the ASR/record mono downmix, which would attenuate the lone live
+    /// channel by the channel count (ADR-0013).
+    #[must_use]
+    pub fn select_channel(&self, channel: u16) -> Option<Self> {
+        let channels = usize::from(self.channels);
+        let ch = usize::from(channel);
+        if channels == 0 || ch >= channels {
+            return None;
+        }
+        let mono = self.samples[ch..]
+            .iter()
+            .step_by(channels)
+            .copied()
+            .collect();
+        Some(Self::new(mono, self.sample_rate, 1))
+    }
 }
 
 #[cfg(test)]
@@ -120,5 +142,27 @@ mod tests {
     #[test]
     fn empty_buffer_reports_empty() {
         assert!(PcmBuffer::new(Vec::new(), 48_000, 2).is_empty());
+    }
+
+    #[test]
+    fn select_channel_extracts_one_interleaved_channel() {
+        // 3-channel, 2 frames: [c0,c1,c2, c0,c1,c2].
+        let pcm = PcmBuffer::new(vec![0.0, 1.0, 2.0, 0.5, 1.5, 2.5], 48_000, 3);
+        let ch1 = pcm.select_channel(1).unwrap();
+        assert_eq!(ch1.channels(), 1);
+        assert_eq!(ch1.sample_rate(), 48_000);
+        assert_eq!(ch1.samples(), &[1.0, 1.5]);
+        assert_eq!(pcm.select_channel(0).unwrap().samples(), &[0.0, 0.5]);
+    }
+
+    #[test]
+    fn select_channel_rejects_out_of_range() {
+        let pcm = PcmBuffer::new(vec![0.0, 1.0], 48_000, 2);
+        assert!(pcm.select_channel(2).is_none());
+        assert!(
+            PcmBuffer::new(vec![0.0], 48_000, 0)
+                .select_channel(0)
+                .is_none()
+        );
     }
 }
