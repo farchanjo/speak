@@ -20,13 +20,13 @@ use clap::Parser;
 use speak::adapters::chatmt::ChatMtTranslator;
 use speak::adapters::config::Config;
 use speak::adapters::coreaudio::CoreAudio;
+use speak::adapters::daemon::{self, DaemonSpeechAdapter};
 use speak::adapters::libav::{DecodeOptions, LibavCodec};
 use speak::adapters::openai::OpenAiAdapter;
 use speak::adapters::retry::Retry;
 use speak::adapters::sse::SseRealtimeClient;
 use speak::application::SpeakFacade;
-use speak::daemon::DaemonSpeechAdapter;
-use speak::{daemon, logging};
+use speak::logging;
 
 use cli::AppFacade;
 use cli::args::{Cli, Command, GlobalArgs};

@@ -10,9 +10,9 @@
 use anyhow::Result;
 
 use speak::adapters::chatmt::ChatMtTranslator;
+use speak::adapters::daemon::DaemonSpeechAdapter;
 use speak::adapters::openai::OpenAiAdapter;
 use speak::adapters::retry::Retry;
-use speak::daemon::DaemonSpeechAdapter;
 use speak::domain::language::Language;
 use speak::domain::speech_spec::SpeechSpec;
 use speak::domain::voice::Voice;

@@ -14,7 +14,6 @@
 
 pub mod adapters;
 pub mod application;
-pub mod daemon;
 pub mod domain;
 pub mod logging;
 pub mod paths;

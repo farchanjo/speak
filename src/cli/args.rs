@@ -11,7 +11,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
 
 use speak::adapters::config::GlobalFlags;
-use speak::daemon;
+use speak::adapters::daemon;
 
 /// Top-level CLI parser.
 #[derive(Parser, Debug)]
