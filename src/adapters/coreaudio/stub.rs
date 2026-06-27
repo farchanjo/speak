@@ -25,6 +25,18 @@ pub fn capture(_device: Option<AudioDeviceId>, _secs: f64) -> Result<PcmBuffer> 
     bail!("native microphone capture is only implemented on macOS (CoreAudio)")
 }
 
+/// Output capture is unsupported off macOS (see module docs).
+pub fn capture_output(
+    _device: Option<u32>,
+    _channel: Option<u16>,
+    _secs: f64,
+) -> Result<PcmBuffer> {
+    bail!(
+        "host-output capture (native Core Audio tap) is only implemented on macOS 14.4+; \
+         route the output to a virtual-loopback device and use `--source input -d <id>`"
+    )
+}
+
 /// Device enumeration is unsupported off macOS (see module docs).
 pub fn enumerate() -> Result<Vec<AudioDevice>> {
     bail!("audio device enumeration is only implemented on macOS (CoreAudio)")

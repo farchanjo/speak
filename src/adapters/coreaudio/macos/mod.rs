@@ -6,6 +6,8 @@
 
 mod device;
 mod engine;
+mod tap;
 
 pub use device::enumerate;
 pub use engine::{capture, play, play_to};
+pub use tap::capture_output;

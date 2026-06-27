@@ -23,10 +23,11 @@ mod backend;
 
 use anyhow::Result;
 
+use crate::domain::capture_source::{CaptureDirection, CaptureSource};
 use crate::domain::pcm::PcmBuffer;
 use crate::ports::audio::{AudioDevice, AudioDeviceId, AudioSink, AudioSource};
 
-pub use backend::{capture, enumerate, play, play_to};
+pub use backend::{capture, capture_output, enumerate, play, play_to};
 
 /// Native `CoreAudio` [`AudioSink`] + [`AudioSource`] Adapter (Factory: `new`).
 #[derive(Debug, Clone, Copy, Default)]
@@ -70,6 +71,18 @@ impl AudioSink for CoreAudio {
 impl AudioSource for CoreAudio {
     async fn capture(&self, device: Option<AudioDeviceId>, secs: f64) -> Result<PcmBuffer> {
         tokio::task::spawn_blocking(move || capture(device, secs)).await?
+    }
+
+    /// Route by source (ADR-0015): `Input` captures a device; `Output` runs the
+    /// native Core Audio system-output tap (macOS 14.4+) off the async runtime.
+    async fn capture_for(&self, source: &CaptureSource, secs: f64) -> Result<PcmBuffer> {
+        match source.direction() {
+            CaptureDirection::Input => self.capture(source.device().map(AudioDeviceId), secs).await,
+            CaptureDirection::Output => {
+                let (device, channel) = (source.device(), source.channel());
+                tokio::task::spawn_blocking(move || capture_output(device, channel, secs)).await?
+            }
+        }
     }
 
     fn inputs(&self) -> Result<Vec<AudioDevice>> {

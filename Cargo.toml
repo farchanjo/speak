@@ -58,7 +58,19 @@ nix = { version = "0.29", default-features = false, features = ["signal", "proce
 # Native macOS audio I/O (CoreAudio / AVFAudio) — device output + mixer + mic capture.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6", features = ["exception"] }
-objc2-foundation = { version = "0.3", features = ["NSString", "NSError", "NSThread"] }
+objc2-foundation = { version = "0.3", features = [
+    "NSString",
+    "NSError",
+    "NSThread",
+    # Output-tap aggregate-device description (ADR-0015, Phase 2): NSDictionary /
+    # NSArray / NSNumber build the CATap + aggregate config, NSUUID mints the
+    # tap/aggregate UIDs.
+    "NSObject",
+    "NSArray",
+    "NSDictionary",
+    "NSValue",
+    "NSUUID",
+] }
 objc2-avf-audio = { version = "0.3", features = [
     "AVAudioEngine",
     "AVAudioPlayerNode",
