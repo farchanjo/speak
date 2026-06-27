@@ -37,19 +37,23 @@ Layer tags map to the Hexagonal plan; FR/ADR refs trace to spec + decisions.
 
 ## Phase 2 — native macOS Core Audio output tap (on-device verification)
 
-- [ ] T011 [adapters/coreaudio/macos] Implement `Output` capture: build
-      `CATapDescription` (system mix default, or selected output device),
-      `AudioHardwareCreateProcessTap`, embed in a private
-      `AudioHardwareCreateAggregateDevice`, capture the aggregate stream, then
-      destroy the aggregate device + tap. Reuse the single-channel pick
-      (ADR-0013) + WAV/resample. Replaces the T003 placeholder. (FR-5)
-- [ ] T012 [adapters/coreaudio/macos] Permission + availability handling: detect
-      macOS < 14.4 / missing tapping symbols / denied capture and return the
-      actionable error (FR-9); add the capture-usage description if required.
-- [ ] T013 [verify] On-device validation (real output playing, permission
-      granted) of `transcribe --stream --source output`,
-      `record --source output`, `realtime --source output`; debugger-grounded
-      checks of the tap/aggregate IDs. Update acceptance-coverage trace.
+API **confirmed** present in the linked `objc2-core-audio` 0.3.2 (`AudioHardware`
+feature); exact sequence, signatures, Cargo features, and friction points are in
+`research.md`. Implementation is a write → `make build-dbg` → run-on-Mac → lldb
+loop (CLAUDE.md §7), so it is done with the device in the loop, not headless.
+
+- [ ] T011 [adapters/coreaudio/macos] `tap.rs::capture_output`: stereo global
+      `CATapDescription` → `AudioHardwareCreateProcessTap` → private auto-start
+      `AudioHardwareCreateAggregateDevice` embedding the tap → reuse
+      `engine::capture(Some(agg_id), secs)` → RAII teardown. Override
+      `CoreAudio::capture_for` `Output` arm. See `research.md`. (FR-5)
+- [ ] T012 [adapters/coreaudio/macos] Permission + availability: detect
+      macOS < 14.4 / `OSStatus` failures / denied TCC capture and return the
+      actionable error naming the BlackHole fallback (FR-9).
+- [ ] T013 [verify] On-device validation (audio playing, permission granted) of
+      `transcribe --stream --source output`, `record --source output`,
+      `realtime --source output`; lldb-read `tap_id`/`agg_id`/`OSStatus`/RMS.
+      Bind the four pending scenarios in the acceptance trace.
 
 ## Dependencies
 
