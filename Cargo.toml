@@ -61,8 +61,18 @@ objc2-avf-audio = { version = "0.3", features = [
     "AVAudioTime",
     "AVAudioTypes",
     "block2",
+    # Exposes AVAudioIONode::audioUnit so multi-output fan-out can pin each
+    # engine's output to a specific AudioDeviceID (ADR-0007).
+    "objc2-audio-toolbox",
 ] }
 block2 = "0.6"
+# CoreAudio HAL device enumeration (kAudioHardwarePropertyDevices, FR-10) and the
+# AudioUnit property set (kAudioOutputUnitProperty_CurrentDevice) used to pin a
+# fan-out engine to a device; CFString/AudioBufferList decode device metadata.
+objc2-core-audio = { version = "0.3.2", features = ["AudioHardware"] }
+objc2-core-foundation = { version = "0.3.2", features = ["CFString", "CFBase"] }
+objc2-core-audio-types = { version = "0.3.2", features = ["CoreAudioBaseTypes"] }
+objc2-audio-toolbox = { version = "0.3.2", features = ["AudioComponent", "AudioUnitProperties"] }
 
 [profile.release]
 opt-level = 3

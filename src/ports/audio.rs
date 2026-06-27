@@ -19,12 +19,20 @@ pub struct AudioDeviceId(pub u32);
 pub struct AudioDevice {
     /// The hardware device id used by `--output-device` / `[audio.*].device`.
     pub id: AudioDeviceId,
+    /// Stable, human-portable device UID (the preferred selector for config).
+    pub uid: String,
     /// Human-readable device name.
     pub name: String,
     /// Capture channel count (0 = not an input device).
     pub input_channels: u16,
     /// Playback channel count (0 = not an output device).
     pub output_channels: u16,
+    /// Native nominal sample rate in Hz (0 = unknown).
+    pub sample_rate: u32,
+    /// Whether this is the system default input device.
+    pub is_default_input: bool,
+    /// Whether this is the system default output device.
+    pub is_default_output: bool,
 }
 
 impl AudioDevice {
@@ -78,15 +86,23 @@ mod tests {
     fn device_direction_predicates() {
         let mic = AudioDevice {
             id: AudioDeviceId(1),
+            uid: "BuiltInMic".into(),
             name: "Mic".into(),
             input_channels: 1,
             output_channels: 0,
+            sample_rate: 48_000,
+            is_default_input: true,
+            is_default_output: false,
         };
         let speakers = AudioDevice {
             id: AudioDeviceId(2),
+            uid: "BuiltInSpeaker".into(),
             name: "Speakers".into(),
             input_channels: 0,
             output_channels: 2,
+            sample_rate: 48_000,
+            is_default_input: false,
+            is_default_output: true,
         };
         assert!(mic.is_input() && !mic.is_output());
         assert!(speakers.is_output() && !speakers.is_input());

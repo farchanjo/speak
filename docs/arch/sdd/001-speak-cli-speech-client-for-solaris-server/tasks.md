@@ -139,10 +139,29 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
 - [x] T034 `[adapter:coreaudio]` `AVAudioEngine` playback
   (`AVAudioPlayerNode -> mainMixerNode -> outputNode`) + `inputNode` capture;
   implements `AudioSink`/`AudioSource` (ADR-0001).
-- [ ] T035 `[adapter:coreaudio]` device enumeration
+  (The AVFAudio FFI moved out of the flat `src/audio_macos.rs`/`audio_stub.rs`
+  into the `src/adapters/coreaudio/` driven adapter — now the ONLY place `objc2`
+  appears. `CoreAudio` (Factory `new`) implements `ports::AudioSink::play` and
+  `ports::AudioSource::capture` over the pure `domain::pcm::PcmBuffer`, off-loaded
+  to `spawn_blocking`; a macOS backend is cfg-gated against a clear-error stub.
+  The `play`/`capture_chunk` free fns are re-exported for the still-flat realtime
+  path until T044.)
+- [x] T035 `[adapter:coreaudio]` device enumeration
   (`kAudioHardwarePropertyDevices`) for `speak devices`; multi-output fan-out to
   N engines / aggregate device, volume -> `mainMixerNode.outputVolume`
   (ADR-0007).
+  (`src/adapters/coreaudio/macos/device.rs`: CoreAudio HAL enumeration walks the
+  system object's `kAudioHardwarePropertyDevices`, reading each device's name +
+  UID (`CFString`), per-direction channel counts (`AudioBufferList` over
+  `StreamConfiguration`), nominal sample rate, and default-in/out status into the
+  port `AudioDevice` (extended with `uid`/`sample_rate`/`is_default_*` for FR-10);
+  `AudioSink::outputs`/`AudioSource::inputs` filter it by direction. Multi-output
+  fan-out (`play_to`) builds one `AVAudioEngine` per target, pinning each output
+  unit to its `AudioDeviceID` via `AudioUnitSetProperty(CurrentDevice)` and
+  scheduling the same decoded buffer on each (one decode -> N devices); volume
+  maps to `mainMixerNode.outputVolume`. Live-verified against this host's 9 HAL
+  devices (names/UIDs/channels/rates/defaults correct). The `speak devices` CLI
+  wiring is T056.)
 - [ ] T036 `[adapter:sse]` `eventsource-stream` consumer decoding realtime frames
   `{type, text?, audio_b64?, format?, seq?}` into a typed `RealtimeFrame`;
   implements `RealtimeStream`. Selection is a **runtime** capability probe (via

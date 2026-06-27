@@ -23,13 +23,6 @@ pub mod paths;
 pub mod ports;
 pub mod transport;
 
-#[cfg(target_os = "macos")]
-#[path = "audio_macos.rs"]
-pub mod audio;
-#[cfg(not(target_os = "macos"))]
-#[path = "audio_stub.rs"]
-pub mod audio;
-
 /// Process-wide lock shared by every test that mutates `SPEAK_*` / `HOME` /
 /// `XDG_CONFIG_HOME` process environment. libc `setenv`/`getenv` are not
 /// thread-safe against each other, so all env-touching tests across modules

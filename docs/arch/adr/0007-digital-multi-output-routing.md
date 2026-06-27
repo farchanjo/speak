@@ -67,3 +67,27 @@ Chosen option: "Option A".
   the use cases stay device-agnostic.
 - Bad: N engines cost N times the output buffers and add clock-drift risk across
   independent devices (an aggregate device mitigates this); macOS-only today.
+
+## Refinement (2026-06-26, coreaudio adapter landing)
+
+The routing landed in `src/adapters/coreaudio/` (T034/T035), Option A as decided:
+
+- Enumeration walks the HAL system object's `kAudioHardwarePropertyDevices` and
+  reads each device's name + UID (`CFString`), per-direction channel counts
+  (`AudioBufferList` over `kAudioDevicePropertyStreamConfiguration`), nominal
+  sample rate, and default-in/out status (FR-10). It is live-verified against
+  this host's nine devices.
+- Fan-out (`AudioSink::play_to`) builds one `AVAudioEngine` per target and pins
+  each engine's **output unit** to the device with
+  `AudioUnitSetProperty(kAudioOutputUnitProperty_CurrentDevice)` before start,
+  scheduling the same decoded buffer on every engine (one decode → N devices).
+  Volume maps to `mainMixerNode.outputVolume`, exactly as decided.
+- Selector reality: the landed `AudioSink`/`AudioSource` ports (from the ports
+  stage) carry an `AudioDeviceId(u32)` newtype rather than only opaque strings —
+  a deliberate, documented `u32` *selector*, not a live CoreAudio handle. The
+  richer, more portable selector this ADR favoured (the device **UID** string)
+  is now surfaced on every `AudioDevice` and is the recommended stable selector
+  for `[audio.output].device`; mapping a UID/name selector through to the
+  `AudioDeviceId` at the config boundary is wired with the config adapter / use
+  cases (T037/T040/T044). The CoreAudio `AudioDeviceID` itself still never
+  escapes the adapter.

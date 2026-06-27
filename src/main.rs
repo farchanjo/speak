@@ -12,6 +12,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{Shell, generate};
 
+use speak::adapters::coreaudio;
 use speak::adapters::libav;
 use speak::adapters::openai::OpenAiAdapter;
 use speak::client::SpeakRequest;
@@ -25,7 +26,7 @@ use speak::ports::transcriber::{TranscribeRequest, Transcriber};
 use speak::ports::translator::Translator;
 use speak::ports::voice::VoiceRepository;
 use speak::transport::Transport;
-use speak::{accel, audio, client, config, daemon, domain, logging, paths};
+use speak::{accel, client, config, daemon, domain, logging, paths};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -555,7 +556,7 @@ async fn play_bytes(bytes: Vec<u8>, content_type: String, cfg: &Config, quiet: b
     let (samples, frames, secs) = tokio::task::spawn_blocking(move || -> Result<_> {
         let pcm = libav::decode(bytes, &opts)?;
         let stats = (pcm.samples().len(), pcm.frames(), pcm.duration_secs());
-        audio::play(&pcm, volume)?;
+        coreaudio::play(&pcm, volume)?;
         Ok(stats)
     })
     .await??;
@@ -652,7 +653,8 @@ async fn realtime_iter(
     quiet: bool,
 ) -> Result<()> {
     let device = args.device;
-    let pcm = tokio::task::spawn_blocking(move || audio::capture_chunk(device, chunk)).await??;
+    let pcm =
+        tokio::task::spawn_blocking(move || coreaudio::capture_chunk(device, chunk)).await??;
     let mono = tokio::task::spawn_blocking(move || libav::to_asr_mono16(&pcm)).await??;
     if cfg.audio.input.vad && libav::rms_s16(&mono) < silence_floor(cfg) {
         return Ok(());

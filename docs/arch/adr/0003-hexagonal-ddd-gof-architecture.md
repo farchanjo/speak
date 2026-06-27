@@ -192,12 +192,24 @@ adapter's lower-level free functions (`decode`, `to_asr_mono16`, `wav_mono16`,
 `rms_s16`, the rate/channel constants) stay re-exported for the still-flat
 realtime path until it moves onto the ports (T044/T055).
 
-The `application/` use cases and the remaining `adapters/*` (coreaudio, config,
-sse, chatmt, retry) split are still tracked in `tasks.md`; the CLI
+The third driven adapter has landed: `src/adapters/coreaudio/` (`CoreAudio`)
+implements the `AudioSink` and `AudioSource` ports (T034/T035). The AVFAudio FFI
+moved wholesale out of the flat `src/audio_macos.rs`/`audio_stub.rs` (now
+deleted) into this adapter, so `objc2`/AVFAudio/CoreAudio-HAL types no longer
+appear outside `adapters/`. The macOS backend (AVAudioEngine playback + mic
+capture + `kAudioHardwarePropertyDevices` enumeration + the multi-output fan-out
+that pins one engine per device via `AudioUnitSetProperty(CurrentDevice)`) sits
+behind a cfg gate against a clear-error stub for other platforms. Device
+descriptors gained `uid`/`sample_rate`/`is_default_*` so `speak devices` (T056)
+can surface FR-10; the `AudioDeviceId` newtype is the only HAL value crossing the
+port (a documented `u32` selector, not a live CoreAudio handle).
+
+The `application/` use cases and the remaining `adapters/*` (config, sse, chatmt,
+retry) split are still tracked in `tasks.md`; the CLI
 `say`/`transcribe`/`translate`/`voices` paths now drive the `openai` ports
 directly (in-process), with the daemon-forward / Facade unification deferred to
 T045/T053/T054. This ADR section records the lib/bin boundary, the ports +
-domain landing, and the first two driven adapters as concrete steps toward the
+domain landing, and the first three driven adapters as concrete steps toward the
 full layout.
 
 The Validate phase added a real test suite exercising this core: domain

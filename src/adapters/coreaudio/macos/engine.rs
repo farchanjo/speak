@@ -1,9 +1,12 @@
 //! Native macOS audio I/O via CoreAudio / AVFAudio (objc2 bindings).
 //!
 //! Output graph: `AVAudioPlayerNode` -> `AVAudioEngine.mainMixerNode` (the
-//! native OS mixer) -> `outputNode`. Capture: `AVAudioEngine.inputNode` with
-//! `installTapOnBus`. libav handles only codecs/resampling; every device I/O
-//! and mix operation here is native CoreAudio. Nothing is shelled out.
+//! native OS mixer) -> `outputNode`. Multi-output fan-out builds one
+//! `AVAudioEngine` per target device, pinning each engine's output unit to a
+//! specific `AudioDeviceID` via `kAudioOutputUnitProperty_CurrentDevice`, and
+//! schedules the same decoded buffer on each (ADR-0007). Capture taps
+//! `AVAudioEngine.inputNode`. libav owns codecs/resampling; every device I/O and
+//! mix operation here is native CoreAudio. Nothing is shelled out.
 
 use std::ptr::NonNull;
 use std::sync::mpsc::sync_channel;
@@ -14,15 +17,19 @@ use anyhow::{Result, anyhow, bail};
 use block2::RcBlock;
 use objc2::AllocAnyThread;
 use objc2::rc::{Retained, autoreleasepool};
+use objc2_audio_toolbox::{
+    AudioUnit, AudioUnitSetProperty, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global,
+};
 use objc2_avf_audio::{
     AVAudioEngine, AVAudioFormat, AVAudioInputNode, AVAudioPCMBuffer, AVAudioPlayerNode,
     AVAudioPlayerNodeCompletionCallbackType, AVAudioTime,
 };
 
 use crate::domain::pcm::PcmBuffer;
+use crate::ports::audio::AudioDeviceId;
 
-/// Play interleaved float PCM through the native CoreAudio mixer, blocking
-/// until the buffer finishes rendering (or a safety timeout elapses).
+/// Play interleaved float PCM through the native CoreAudio mixer on the default
+/// output device, blocking until the buffer finishes (or a safety timeout).
 pub fn play(pcm: &PcmBuffer, volume: f32) -> Result<()> {
     if pcm.is_empty() {
         bail!("no PCM samples to play");
@@ -34,15 +41,52 @@ pub fn play(pcm: &PcmBuffer, volume: f32) -> Result<()> {
     })
 }
 
-/// Capture roughly `secs` seconds of microphone audio as interleaved float
-/// PCM at the input device's native rate/channels. `device` is accepted for
-/// API parity; only the system default input is wired today.
-pub fn capture_chunk(device: u32, secs: f64) -> Result<PcmBuffer> {
-    let _ = device;
+/// Fan one decoded buffer out to every device in `devices` simultaneously, each
+/// on its own engine pinned to that `AudioDeviceID` (FR-11 / ADR-0007). An empty
+/// list falls back to the default-device [`play`].
+pub fn play_to(pcm: &PcmBuffer, devices: &[AudioDeviceId], volume: f32) -> Result<()> {
+    if devices.is_empty() {
+        return play(pcm, volume);
+    }
+    if pcm.is_empty() {
+        bail!("no PCM samples to play");
+    }
+    let volume = volume.clamp(0.0, 1.0);
     autoreleasepool(|_| {
-        objc2::exception::catch(|| capture_inner(secs))
+        objc2::exception::catch(|| play_to_inner(pcm, devices, volume))
+            .map_err(|e| anyhow!("CoreAudio fan-out raised an exception: {e:?}"))?
+    })
+}
+
+/// Capture roughly `secs` seconds of microphone audio as interleaved float PCM
+/// at the input device's native rate/channels. A `Some(device)` pins the input
+/// unit to that `AudioDeviceID`; `None` uses the system default input.
+pub fn capture(device: Option<AudioDeviceId>, secs: f64) -> Result<PcmBuffer> {
+    let device = device.map(|d| d.0);
+    autoreleasepool(|_| {
+        objc2::exception::catch(|| capture_inner(device, secs))
             .map_err(|e| anyhow!("CoreAudio capture raised an exception: {e:?}"))?
     })
+}
+
+/// Pin an output/input unit to a specific `AudioDeviceID` before the engine
+/// starts (the AUHAL `CurrentDevice` property).
+unsafe fn set_device(au: AudioUnit, device: u32) -> Result<()> {
+    unsafe {
+        let id = device;
+        let st = AudioUnitSetProperty(
+            au,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            std::ptr::addr_of!(id).cast(),
+            size_of::<u32>() as u32,
+        );
+        if st != 0 {
+            bail!("AudioUnitSetProperty(CurrentDevice={device}) failed: OSStatus {st}");
+        }
+        Ok(())
+    }
 }
 
 fn play_inner(pcm: &PcmBuffer, volume: f32) -> Result<()> {
@@ -77,6 +121,61 @@ fn play_inner(pcm: &PcmBuffer, volume: f32) -> Result<()> {
         engine.stop();
     }
     Ok(())
+}
+
+/// A single running engine pinned to one device, kept alive for the fan-out.
+struct Rig {
+    engine: Retained<AVAudioEngine>,
+    player: Retained<AVAudioPlayerNode>,
+}
+
+fn play_to_inner(pcm: &PcmBuffer, devices: &[AudioDeviceId], volume: f32) -> Result<()> {
+    // SAFETY: one engine per device, each wired per the AVAudioEngine contract
+    // and pinned to its `AudioDeviceID` before start; the rigs outlive playback.
+    unsafe {
+        let format = make_format(pcm.sample_rate(), pcm.channels())?;
+        let mut rigs = Vec::with_capacity(devices.len());
+        for dev in devices {
+            rigs.push(build_rig(&format, pcm, volume, dev.0)?);
+        }
+        for rig in &rigs {
+            rig.player.play();
+        }
+        std::thread::sleep(Duration::from_secs_f64(pcm.duration_secs() + 0.5));
+        for rig in &rigs {
+            rig.player.stop();
+            rig.engine.stop();
+        }
+    }
+    Ok(())
+}
+
+unsafe fn build_rig(
+    format: &AVAudioFormat,
+    pcm: &PcmBuffer,
+    volume: f32,
+    device: u32,
+) -> Result<Rig> {
+    unsafe {
+        let buffer = make_buffer(format, pcm)?;
+        let engine = AVAudioEngine::new();
+        set_device(engine.outputNode().audioUnit(), device)?;
+        let player = AVAudioPlayerNode::new();
+        engine.attachNode(&player);
+        let mixer = engine.mainMixerNode();
+        mixer.setOutputVolume(volume);
+        engine.connect_to_format(&player, &mixer, Some(format));
+        engine.prepare();
+        engine
+            .startAndReturnError()
+            .map_err(|e| anyhow!("AVAudioEngine start (device {device}) failed: {e:?}"))?;
+        player.scheduleBuffer_completionCallbackType_completionHandler(
+            &buffer,
+            AVAudioPlayerNodeCompletionCallbackType::DataPlayedBack,
+            std::ptr::null_mut(),
+        );
+        Ok(Rig { engine, player })
+    }
 }
 
 unsafe fn make_format(rate: u32, channels: u16) -> Result<Retained<AVAudioFormat>> {
@@ -121,12 +220,15 @@ unsafe fn make_buffer(
     }
 }
 
-fn capture_inner(secs: f64) -> Result<PcmBuffer> {
+fn capture_inner(device: Option<u32>, secs: f64) -> Result<PcmBuffer> {
     // SAFETY: documented AVAudioEngine input-tap setup; the tap closure only
     // locks the shared buffer and is removed before the engine stops.
     unsafe {
         let engine = AVAudioEngine::new();
         let input = engine.inputNode();
+        if let Some(dev) = device {
+            set_device(input.audioUnit(), dev)?;
+        }
         let format = input.outputFormatForBus(0);
         let rate = format.sampleRate();
         let channels = usize::try_from(format.channelCount()).unwrap_or(0);
