@@ -165,6 +165,13 @@ flowchart TD
   command RESULTS go to stdout through the `Presenter` port while DIAGNOSTICS go
   to stderr (verbosity-gated) and the rotating log via `tracing` — the two
   streams never interleave and no raw `println!`/`eprintln!` is used.
+- Layout note (2026-06-27, ADR-0003 refinement / T064): the `accel` probe now
+  lives in the `libav` adapter (`adapters/libav/accel.rs`, its only `ffmpeg-the-
+  third` sibling) and is still consumed by the `check` use case as plain
+  cross-cutting data, never through a port; only `logging`/`paths` remain as
+  flat-root cross-cutting helpers. The warm HTTP client, config resolver, and
+  daemon socket likewise moved under `adapters/` (`http`, `config`, `daemon`), so
+  framework crates are confined to `adapters/` and `cli/`.
 
 ## Realtime pipeline
 

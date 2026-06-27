@@ -80,9 +80,11 @@ The root constructs every driven adapter (`openai`, `coreaudio`, `libav`,
   Value Object), `VoiceClone`, `StandardVoice` (a named built-in voice such as
   the `[tts].voice` default `alloy`, distinct from a saved clone — the third
   `VoiceMode` arm), `PcmBuffer`, `SampleFormat`, `SpeechSpec`,
-  `GenParams`, `Language`, `RetryPolicy` (the exponential-backoff + jitter
-  resilience value object, with its `RetryOn` classification), and domain
-  `errors`. No `tokio`, `reqwest`, `objc2`, or `ffmpeg` types appear here.
+  `GenParams` (a pure domain map of `GenValue` scalars, not a `serde_json`
+  value), `Language`, `RetryPolicy` (the exponential-backoff + jitter resilience
+  value object, with its `RetryOn` classification), and domain `errors`. No
+  `tokio`, `reqwest`, `objc2`, `ffmpeg`, `serde_json`, or `anyhow` types appear
+  here — the domain depends only on `std` and its own types.
 - `src/ports/` — driven-port traits: `Synthesizer`, `Transcriber`,
   `Translator`, `AudioSink`, `AudioSource`, `AudioDecoder`, `AudioEncoder`
   (WAV/FLAC record output), `ConfigProvider`, `VoiceRepository`,
@@ -145,10 +147,12 @@ The crate is now a **library core (`src/lib.rs`) plus a thin binary
 (`src/main.rs`)** rather than a bin-only crate. `main.rs` is the clap driving
 adapter and composition root; it depends on the library via `use speak::…` and
 holds no reusable logic beyond CLI mapping. This makes the inward modules
-(`domain`, `ports`, `adapters`, `config`, `client`, `daemon`, `transport`,
-`accel`, `paths`, `audio`) a reusable, directly testable surface and lets the
+(`domain`, `ports`, `application`, `adapters`, plus the `logging`/`paths`
+cross-cutting helpers) a reusable, directly testable surface and lets the
 configuration catalog's forward-looking value objects be reachable `pub` API
-(rather than bin-private dead code).
+(rather than bin-private dead code). The framework-bearing modules (HTTP client,
+libav accel probe, config resolver, daemon socket) live under `adapters/` — see
+the 2026-06-27 refinement below.
 
 The rebuild is landing layer by layer. The pure `domain/` is now populated with
 the value objects described above — `VoiceDesign`, `GenParams`, `RetryPolicy`,
@@ -159,8 +163,8 @@ through a fluent Builder), and the `DomainError` failure vocabulary — and the
 `AudioSink`, `AudioSource`, `AudioDecoder`, `AudioEncoder`, `ConfigProvider`,
 `VoiceRepository`, `RealtimeStream`, `ServerProbe`, and the `RetryPolicy`
 Strategy) now exist and compile clippy-clean, referencing only domain types
-(plus the still-flat resolved `config::Config` POD, which moves inward with the
-config adapter).
+(plus the resolved `adapters::config::Config` POD the `ConfigProvider` port
+returns — plain data with no framework types).
 
 The first driven adapter has landed: `src/adapters/openai/` (`OpenAiAdapter`)
 implements the `Synthesizer`, `Transcriber`, `Translator`, and `VoiceRepository`
@@ -237,3 +241,41 @@ length-prefixed framing over a `UnixStream` pair, libav WAV/RMS helpers, path
 and acceleration resolution), and a binary-driven CLI suite. A feature-gated
 `integration` suite talks to the live server and skips with a note when it is
 unreachable. See the README "Testing" section for the commands and the CI gate.
+
+## Refinement (2026-06-27, architecture-discipline cleanup)
+
+Two residual layer-discipline gaps from the rebuild are now closed (no behavior
+change; green at every commit).
+
+1. **Flat-root framework modules relocated under `adapters/`.** The four
+   remaining flat-root modules that linked a framework moved into the driven-
+   adapter layer so framework crates appear ONLY under `src/adapters` (and clap
+   under `src/cli`):
+   - `src/client.rs` (the warm `reqwest` keep-alive pool builder) ->
+     `src/adapters/http.rs`.
+   - `src/accel.rs` (the `ffmpeg-the-third` hwdevice/AudioToolbox probe) ->
+     `src/adapters/libav/accel.rs` (co-located with the only other libav code).
+   - `src/config.rs` + `config_template.toml` (the serde/toml resolver) ->
+     `src/adapters/config.rs`.
+   - `src/daemon.rs` (the serde wire protocol + tokio Unix-socket listener) ->
+     `src/adapters/daemon.rs`.
+
+   The only flat-root `src/*.rs` files left are the composition root
+   (`main.rs`), the library module index (`lib.rs`), and the two sanctioned
+   cross-cutting helpers `logging.rs` (tracing, ADR-0002) and `paths.rs` (pure
+   `std`). The `ConfigProvider` port and the `check` use case still name the
+   `adapters::config::Config` POD and the `adapters::libav::accel::Report` as
+   plain cross-cutting data (never through a port), preserving the ADR-0003
+   cross-cutting treatment.
+
+2. **`domain/` purified of `serde_json` and `anyhow`.** `GenParams` is now a
+   pure domain value object — a sorted map of `GenValue` (`Int`/`Float`/`Bool`/
+   `Str`) — instead of `serde_json::Map<String, Value>`, and the `gen_params` /
+   `voice_design` validators return the domain `DomainError` enum instead of
+   `anyhow::Result` (new variants: `UnknownGenParam`, `MalformedOverride`,
+   `EmptyGenParamValue`, `InvalidVoiceDesignTag`, `EmptyVoiceDesign`). The
+   domain now depends only on `std` and its own types. The JSON mapping moved to
+   the boundary: `adapters/genparams` projects `GenParams` to/from
+   `serde_json::Value`, consumed by the `openai` speech body and the `daemon`
+   wire DTO. A `grep` over `src/domain` for
+   `async_openai|ffmpeg|objc2|reqwest|serde_json|anyhow` is now empty.

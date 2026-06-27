@@ -531,6 +531,28 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   as `unbound` (the Gherkin grammar binds only `speckit` verbs) with 0 failures,
   so the gate passes.)
 
+## Architecture-discipline cleanup
+
+- [x] T064 `[cross]` Close the residual layer-discipline gaps from the rebuild
+  (no behavior change; green at every commit, ADR-0003 refinement 2026-06-27):
+  RELOCATE the four flat-root framework modules under `src/adapters/` so
+  framework crates appear ONLY under `adapters/` (and clap under `cli/`) —
+  `src/client.rs` -> `src/adapters/http.rs` (warm `reqwest` pool builder),
+  `src/accel.rs` -> `src/adapters/libav/accel.rs` (`ffmpeg-the-third` probe),
+  `src/config.rs` + `config_template.toml` -> `src/adapters/config.rs`
+  (serde/toml resolver), `src/daemon.rs` -> `src/adapters/daemon.rs` (serde wire
+  + tokio Unix socket). The only flat-root `src/*.rs` left are `main.rs`
+  (composition root), `lib.rs`, and the cross-cutting `logging.rs`/`paths.rs`.
+  PURIFY `src/domain`: `GenParams` becomes a pure value object (a sorted map of
+  `GenValue` `Int`/`Float`/`Bool`/`Str`) instead of `serde_json::Map<String,
+  Value>`, and `gen_params`/`voice_design` return the domain `DomainError`
+  (new `UnknownGenParam`/`MalformedOverride`/`EmptyGenParamValue`/
+  `InvalidVoiceDesignTag`/`EmptyVoiceDesign` variants) instead of
+  `anyhow::Result`; the JSON mapping moves to the boundary adapter
+  `adapters/genparams` (consumed by the openai speech body + daemon DTO). A
+  `grep` over `src/domain` for `async_openai|ffmpeg|objc2|reqwest|serde_json|
+  anyhow` is empty. All four gates stay green; `speckit validate`/`analyze` clean.
+
 ## Dependencies
 
 - Reachable server `http://solaris:8800` (OmniVoice + Whisper), OpenAI-compatible

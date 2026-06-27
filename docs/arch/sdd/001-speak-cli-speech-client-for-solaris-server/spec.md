@@ -24,6 +24,15 @@ so the `implemented` marker denotes the shipped flat-layout behavior, NOT
 completion of the layered architecture. This section is the single place that
 reconciles the speckit status with the source tree to avoid a silent mismatch.
 
+As of 2026-06-27 the layered tree is in place and an architecture-discipline
+cleanup (T064) closed the last two gaps: the four flat-root framework modules
+(`client.rs`, `accel.rs`, `config.rs`, `daemon.rs`) were relocated under
+`src/adapters/` so framework crates appear only under `adapters/` (and clap
+under `cli/`), and `src/domain` was purified of `serde_json`/`anyhow` (the
+`GenParams` value object replaces the raw JSON map; the validators return
+`DomainError`). The only flat-root `src/*.rs` files left are `main.rs`
+(composition root), `lib.rs`, and the cross-cutting `logging.rs`/`paths.rs`.
+
 ## Summary
 
 `speak` is a single self-contained Rust binary: a network client for the
