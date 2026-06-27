@@ -3,7 +3,7 @@
 //!
 //! The CLI (driving adapter) lives in `src/main.rs` and depends inward on these
 //! modules; nothing here depends on the binary. Splitting the core into a
-//! library makes the full configuration catalog, the HTTP/daemon transport, the
+//! library makes the full configuration catalog, the daemon + HTTP client, the
 //! libav codec layer, and the domain value objects directly reachable from the
 //! integration test suite under `tests/`.
 //!
@@ -22,7 +22,6 @@ pub mod domain;
 pub mod logging;
 pub mod paths;
 pub mod ports;
-pub mod transport;
 
 /// Process-wide lock shared by every test that mutates `SPEAK_*` / `HOME` /
 /// `XDG_CONFIG_HOME` process environment. libc `setenv`/`getenv` are not
