@@ -197,6 +197,12 @@ and prints the real one. Drive it non-interactively via the harness in
 `scripts/debug/` (everything wrapped in a hard `timeout`; the Rust pretty-printer
 banner is stripped).
 
+> **Full guide: [`scripts/debug/CLAUDE.md`](scripts/debug/CLAUDE.md)** — breakpoints,
+> variable analysis, memory dumps, watchpoints, live attach, panics, the Java/JDWP
+> flow, and the **anti-lock-in doctrine** (never wait on a breakpoint that can't be
+> reached: bound every session with a timeout, verify the breakpoint resolved to ≥1
+> location before `run`, break on a path the args actually execute).
+
 ```bash
 # backtrace + real values at a line (grounds "what is cfg here?")
 make debug-bt LOC='--file main.rs --line 111' ARGS='config path' P='p cfg->server.host'
