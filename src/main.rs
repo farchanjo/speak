@@ -94,16 +94,27 @@ impl<'a> Factory<'a> {
         let socket = &self.cfg.daemon.socket;
         if daemon::is_running(socket).await {
             tracing::debug!(socket = %socket.display(), "speech role: daemon-forward");
-            return Ok(SpeechRole::Daemon(DaemonSpeechAdapter::new(
-                socket.clone(),
-                self.cfg.retry.policy,
-                self.cfg.retry.jitter_seed,
-            )));
+            return Ok(self.daemon_role());
+        }
+        // ADR-0005: when [daemon].autostart is set, spawn a detached daemon on the
+        // first call and forward through it; a failed/slow start falls back below.
+        if self.cfg.daemon.autostart && daemon::autostart(self.cfg).await.unwrap_or(false) {
+            tracing::debug!(socket = %socket.display(), "speech role: autostarted daemon-forward");
+            return Ok(self.daemon_role());
         }
         tracing::debug!("speech role: in-process");
         Ok(SpeechRole::Direct(Box::new(InProcessSpeech::new(
             self.cfg, native,
         )?)))
+    }
+
+    /// Build the daemon-forwarding speech role bound to the configured socket.
+    fn daemon_role(&self) -> SpeechRole {
+        SpeechRole::Daemon(DaemonSpeechAdapter::new(
+            self.cfg.daemon.socket.clone(),
+            self.cfg.retry.policy,
+            self.cfg.retry.jitter_seed,
+        ))
     }
 }
 

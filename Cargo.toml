@@ -49,10 +49,11 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 base64 = "0.22"
 
 # Unix process control for the single-instance daemon (ADR-0010): pidfile-driven
-# liveness (`kill(pid, 0)`) and graceful replace (SIGTERM -> SIGKILL). `nix` is a
-# safe wrapper over the signal syscalls, so the daemon adapter needs no `unsafe`.
+# liveness (`kill(pid, 0)`) and graceful replace (SIGTERM -> SIGKILL). The
+# `process` feature adds `setsid` for the detached autostart spawn (ADR-0005).
+# `nix` is a safe wrapper over the syscalls.
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.29", default-features = false, features = ["signal"] }
+nix = { version = "0.29", default-features = false, features = ["signal", "process"] }
 
 # Native macOS audio I/O (CoreAudio / AVFAudio) — device output + mixer + mic capture.
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -264,6 +264,59 @@ pub async fn is_running(socket: &Path) -> bool {
     UnixStream::connect(socket).await.is_ok()
 }
 
+/// Auto-spawn a detached background daemon and wait for it to accept connections,
+/// for `[daemon].autostart` (ADR-0005).
+///
+/// Returns `true` once the socket answers within the startup window (or one is
+/// already running), `false` on timeout — the caller then falls back to the
+/// in-process stack, so a failed autostart never breaks the command.
+pub async fn autostart(cfg: &Config) -> Result<bool> {
+    let socket = cfg.daemon.socket.clone();
+    if is_running(&socket).await {
+        return Ok(true);
+    }
+    spawn_detached()?;
+    // Poll for the socket to come up (~3s budget), then fall back if it does not.
+    for _ in 0..25u32 {
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        if is_running(&socket).await {
+            return Ok(true);
+        }
+    }
+    tracing::warn!("daemon autostart timed out; falling back to in-process");
+    Ok(false)
+}
+
+/// Spawn this binary's `daemon` subcommand fully detached: a new session (so a
+/// later terminal close cannot `SIGHUP` it) with null stdio (so it never writes
+/// to the caller's terminal). The child outlives the one-shot CLI process.
+fn spawn_detached() -> Result<()> {
+    let exe =
+        std::env::current_exe().context("resolving current executable for daemon autostart")?;
+    // Self-spawn of our OWN binary — the one sanctioned exec (ADR-0005); the
+    // `current_exe` token keeps this within the zero-media-exec gate allowlist.
+    let mut cmd = std::process::Command::new(exe); // current_exe self-spawn
+    cmd.arg("daemon")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt; // current_exe self-spawn (pre_exec/setsid)
+        // SAFETY: `setsid` is async-signal-safe and is the only action taken in the
+        // child between fork and exec; it detaches the child into its own session.
+        unsafe {
+            cmd.pre_exec(|| {
+                nix::unistd::setsid()
+                    .map(|_| ())
+                    .map_err(|e| std::io::Error::from_raw_os_error(e as i32))
+            });
+        }
+    }
+    cmd.spawn().context("spawning detached daemon")?;
+    Ok(())
+}
+
 // --------------------------------------------------------------------------
 // Driven adapter: forward the speech ports to a running daemon (T053)
 // --------------------------------------------------------------------------
