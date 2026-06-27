@@ -80,13 +80,15 @@ ffmpeg/afplay/ffplay.
 |------|---------|
 | Debug build | `make build` |
 | Release build | `make build-release` → `target/release/speak` (lto, strip); `bin/speak` symlinks it |
+| Install | `make install` (build-release + **Apple codesign** + symlink) — macOS-guarded, no-ops off-mac |
+| Codesign | `make sign` — signs `$SIGN_BIN` (default the release bin). Auto-detects the first keychain identity, ad-hoc (`-`) fallback. Override: `CODESIGN_IDENTITY="Developer ID Application: … (TEAMID)" CODESIGN_OPTS="--options runtime --timestamp"` |
 | Lint | `make lint` (verbose clippy + fmt check) · `make fmt-fix` to apply · `make clippy-fix` to auto-apply suggestions |
 | Lint (verbose) | `make clippy` — `all`+rustc groups **deny**, `pedantic`/`nursery`/`cargo` **warn** (config in `Cargo.toml [lints]`; tokio-noisy lints allowed there) |
 | Lint (strict) | `make clippy-strict` — promotes every warn to a hard error (cleanup sessions only) |
 | Test | `make test` (259 hermetic) · `make test-int` (live vs `$SPEAK_HOST`, skips if down) |
 | Spec gates | `make spec` (speckit validate/verify/analyze) |
 | **Full pre-commit bar** | `make gates` (build-release + clippy + fmt + test + spec) — green before any commit |
-| Release artifact | `make release` → `dist/speak-<ver>-<target>.tar.gz` + `.sha256` (`TARGET=` to override) |
+| Release artifact | `make release` → Apple-signs the darwin binary, then `dist/speak-<ver>-<target>.tar.gz` + `.sha256` (`TARGET=` to override) |
 | Cleanup | `make clean` · `dist-clean` · `clean-runtime` (keeps config.toml) · `clean-all` |
 
 Raw `cargo` (only if not using make) needs the env first:
@@ -113,16 +115,20 @@ speak say --voice <saved-name> "..."                    # voice clone
 speak transcribe audio.mp3                              # STT
 speak translate audio.mp3 --format srt                  # translate (+ srt/vtt)
 speak realtime --translate --to fr --instruct "Female, British Accent"   # live SSE translation
+speak realtime -d <id> --no-vad --echo                  # pin input device (ADR-0011), gate off, echo test
 speak voices add <name> --audio ref.wav [--ref-text "..."]   # voices list | rm
 speak devices [--json]                                  # audio in/out devices
-speak record -o clip.wav --format wav|flac
+speak record -o clip.wav -D <id> --format wav|flac      # -D = capture device AudioDeviceID
 speak daemon | daemon status | daemon stop | daemon restart
 speak config init | path | show                         # `show` prints value + origin
 speak completions zsh|bash|fish|powershell
 speak check | health | --version
 ```
-Global flags: `--host --api-key --lang --voice --format -q/--quiet --json -v/--verbose
---output-device <id|name>` (repeatable → multi-output fan-out).
+Global flags: `-H/--host -K/--api-key -L/--lang -C/--voice -J/--json -q/--quiet -v/--verbose`.
+**Every** option has a short (ADR-0012; `--voice`=`-C` since `-v`/`-V` are verbose/version).
+`-D/--output-device <id>` (say/realtime, repeatable → multi-output fan-out). Realtime capture:
+`-d/--device <id>` pins the input device (ADR-0011 — `--device` rebinds the HAL default input);
+`-x/--no-vad` + `-F/--vad-floor <dBFS>` control the silence gate.
 
 ---
 
