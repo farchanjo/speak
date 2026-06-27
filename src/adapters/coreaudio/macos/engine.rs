@@ -24,6 +24,11 @@ use objc2_avf_audio::{
     AVAudioEngine, AVAudioFormat, AVAudioInputNode, AVAudioPCMBuffer, AVAudioPlayerNode,
     AVAudioPlayerNodeCompletionCallbackType, AVAudioTime,
 };
+use objc2_core_audio::{
+    AudioObjectGetPropertyData, AudioObjectID, AudioObjectPropertyAddress,
+    AudioObjectSetPropertyData, kAudioHardwarePropertyDefaultInputDevice,
+    kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
+};
 
 use crate::domain::pcm::PcmBuffer;
 use crate::ports::audio::AudioDeviceId;
@@ -89,6 +94,95 @@ unsafe fn set_device(au: AudioUnit, device: u32) -> Result<()> {
             bail!("AudioUnitSetProperty(CurrentDevice={device}) failed: OSStatus {st}");
         }
         Ok(())
+    }
+}
+
+/// The HAL property address for the system default input device.
+fn default_input_address() -> AudioObjectPropertyAddress {
+    AudioObjectPropertyAddress {
+        mSelector: kAudioHardwarePropertyDefaultInputDevice,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain,
+    }
+}
+
+/// Read the current system default input `AudioDeviceID` (0 when unavailable).
+unsafe fn default_input_device() -> u32 {
+    let mut addr = default_input_address();
+    let mut id: AudioObjectID = 0;
+    let mut size = size_of::<AudioObjectID>() as u32;
+    // SAFETY: reads a single AudioObjectID from the HAL system object.
+    let st = unsafe {
+        AudioObjectGetPropertyData(
+            kAudioObjectSystemObject as AudioObjectID,
+            NonNull::from(&mut addr),
+            0,
+            std::ptr::null(),
+            NonNull::from(&mut size),
+            NonNull::from(&mut id).cast(),
+        )
+    };
+    if st == 0 { id } else { 0 }
+}
+
+/// Set the system default input device to `id`.
+unsafe fn set_default_input_device(id: u32) -> Result<()> {
+    let mut addr = default_input_address();
+    let mut value = id;
+    // SAFETY: writes a single AudioObjectID to the HAL system object; status-checked.
+    let st = unsafe {
+        AudioObjectSetPropertyData(
+            kAudioObjectSystemObject as AudioObjectID,
+            NonNull::from(&mut addr),
+            0,
+            std::ptr::null(),
+            size_of::<AudioObjectID>() as u32,
+            NonNull::from(&mut value).cast(),
+        )
+    };
+    if st != 0 {
+        bail!("AudioObjectSetPropertyData(DefaultInputDevice={id}) failed: OSStatus {st}");
+    }
+    Ok(())
+}
+
+/// Restores the previous system default input device on drop.
+///
+/// `AVAudioEngine.inputNode` binds to the system default input when it is
+/// materialized and ignores a per-node `CurrentDevice` set (ADR-0011), so capturing
+/// from a non-default device works by swapping the default for the capture window
+/// and restoring it here — even on error or unwind.
+struct DefaultInputGuard {
+    previous: u32,
+}
+
+impl Drop for DefaultInputGuard {
+    fn drop(&mut self) {
+        if self.previous != 0 {
+            // SAFETY: restoring a previously-read, valid AudioDeviceID (best effort).
+            unsafe {
+                let _ = set_default_input_device(self.previous);
+            }
+        }
+    }
+}
+
+/// Pin the system default input to `device` until the returned guard drops.
+///
+/// Returns `Ok(None)` when `device` is `None` (keep the current default) or already
+/// is the default (no swap needed).
+unsafe fn pin_default_input(device: Option<u32>) -> Result<Option<DefaultInputGuard>> {
+    let Some(dev) = device else {
+        return Ok(None);
+    };
+    // SAFETY: HAL system-object read then write; both are status-checked.
+    unsafe {
+        let previous = default_input_device();
+        if previous == dev {
+            return Ok(None);
+        }
+        set_default_input_device(dev)?;
+        Ok(Some(DefaultInputGuard { previous }))
     }
 }
 
@@ -225,13 +319,13 @@ unsafe fn make_buffer(
 
 fn capture_inner(device: Option<u32>, secs: f64) -> Result<PcmBuffer> {
     // SAFETY: documented AVAudioEngine input-tap setup; the tap closure only
-    // locks the shared buffer and is removed before the engine stops.
+    // locks the shared buffer and is removed before the engine stops. The default
+    // input is pinned to `device` BEFORE the engine materializes its input node
+    // (ADR-0011) and restored when `_input_guard` drops.
     unsafe {
+        let _input_guard = pin_default_input(device)?;
         let engine = AVAudioEngine::new();
         let input = engine.inputNode();
-        if let Some(dev) = device {
-            set_device(input.audioUnit(), dev)?;
-        }
         let format = input.outputFormatForBus(0);
         let rate = format.sampleRate();
         let channels = usize::try_from(format.channelCount()).unwrap_or(0);
