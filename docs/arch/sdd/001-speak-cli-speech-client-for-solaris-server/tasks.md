@@ -224,10 +224,19 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
 
 ## Application (use cases)
 
-- [ ] T040 `[application]` `say` use case (TTS: voice modes, format, gen-params,
+- [x] T040 `[application]` `say` use case (TTS: voice modes, format, gen-params,
   play vs `-o`/`--no-play`, multi-output). A bare `-o` filename resolves under
   `[http].save_dir` (`SPEAK_SAVE_DIR`, default CWD); on `--json` surface the
   server's `X-RTF`/`X-Audio-Seconds` headers when present (FR-1).
+  (`src/application/say.rs`: `SayUseCase` is generic over the `Synthesizer`,
+  `AudioDecoder`, and `AudioSink` ports — it synthesizes the validated
+  `SpeechSpec`, and unless `SayOptions.play` is false decodes the bytes and
+  routes them to the default device or fans them out to N `--output-device`s via
+  the shared `application::playback` helper (FR-11). The `SayOutcome` returns the
+  encoded bytes + `X-RTF`/`X-Audio-Seconds` so the driving adapter honours
+  `-o`/`--json` (the save-path resolution + file write stay in the CLI/daemon
+  driving adapter, T051/T053). Unit-tested over the in-memory port doubles. The
+  CLI wiring onto this use case is T051.)
 - [ ] T041 `[application]` `transcribe` and `translate` (file) use cases.
 - [ ] T042 `[application]` `voices` use case (add/list/rm via `VoiceRepository`).
 - [ ] T043 `[application]` `record` use case (capture -> WAV/FLAC file).

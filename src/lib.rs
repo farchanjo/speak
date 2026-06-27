@@ -14,6 +14,7 @@
 
 pub mod accel;
 pub mod adapters;
+pub mod application;
 pub mod client;
 pub mod config;
 pub mod daemon;
