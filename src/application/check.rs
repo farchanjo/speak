@@ -9,7 +9,7 @@
 
 use anyhow::Result;
 
-use crate::accel::Report as AccelReport;
+use crate::adapters::libav::accel::Report as AccelReport;
 use crate::ports::probe::ServerProbe;
 
 /// The server-side health snapshot (`speak health`).

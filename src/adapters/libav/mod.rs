@@ -13,6 +13,7 @@
 //! re-exported for the still-flat realtime path until it moves onto the ports
 //! (T044/T055).
 
+pub mod accel;
 mod codec;
 mod encode;
 

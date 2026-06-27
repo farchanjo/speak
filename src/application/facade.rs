@@ -12,7 +12,7 @@
 
 use anyhow::Result;
 
-use crate::accel::Report as AccelReport;
+use crate::adapters::libav::accel::Report as AccelReport;
 use crate::application::check::{CheckOutcome, CheckUseCase, HealthOutcome};
 use crate::application::realtime::{RealtimeEvent, RealtimeOptions, RealtimeStep, RealtimeUseCase};
 use crate::application::record::{RecordOptions, RecordOutcome, RecordUseCase};

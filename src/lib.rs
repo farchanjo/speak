@@ -12,7 +12,6 @@
 //! (AVAudioEngine); the microphone is captured natively too. Nothing is shelled
 //! out.
 
-pub mod accel;
 pub mod adapters;
 pub mod application;
 pub mod config;

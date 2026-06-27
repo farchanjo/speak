@@ -398,7 +398,7 @@ fn fresh_ctx(stream: &ff::Stream<'_>, threads: u32) -> Result<ff::codec::context
 fn chosen_decoder(stream: &ff::Stream<'_>) -> Option<ff::Codec> {
     let ctx = ff::codec::context::Context::from_parameters(stream.parameters()).ok()?;
     let default_name = ff::codec::decoder::find(ctx.id())?.name().to_owned();
-    let name = crate::accel::resolve_decoder(&default_name)?;
+    let name = super::accel::resolve_decoder(&default_name)?;
     ff::codec::decoder::find_by_name(&name)
 }
 

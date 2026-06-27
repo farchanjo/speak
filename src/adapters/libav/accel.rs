@@ -1,4 +1,5 @@
-//! Local hardware-acceleration detection for libav.
+//! Local hardware-acceleration detection for libav (part of the `libav` driven
+//! adapter — the only layer where `ffmpeg-the-third` appears, ADR-0001/ADR-0003).
 //!
 //! `speak` only handles **audio** (TTS/ASR). NVIDIA NVENC/NVDEC and other GPU
 //! codecs accelerate *video*, not audio, and on this client the only GPU is

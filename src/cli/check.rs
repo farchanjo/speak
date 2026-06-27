@@ -8,9 +8,10 @@
 
 use anyhow::Result;
 
+use speak::adapters::libav::accel;
 use speak::config::Config;
 use speak::ports::presenter::{Presenter, Report};
-use speak::{accel, logging, paths};
+use speak::{logging, paths};
 
 use super::AppFacade;
 
