@@ -8,6 +8,7 @@
 //! doubles in [`fakes`]. The application [`Facade`] exposes one cohesive surface
 //! shared by the CLI and the daemon driving adapters (ADR-0005).
 
+pub mod check;
 pub mod playback;
 pub mod realtime;
 pub mod record;
@@ -16,6 +17,7 @@ pub mod transcribe;
 pub mod translate;
 pub mod voices;
 
+pub use check::{CheckOutcome, CheckUseCase, HealthOutcome};
 pub use playback::PlaybackStats;
 pub use realtime::{FrameKind, RealtimeEvent, RealtimeOptions, RealtimeStep, RealtimeUseCase};
 pub use record::{RecordOptions, RecordOutcome, RecordUseCase};

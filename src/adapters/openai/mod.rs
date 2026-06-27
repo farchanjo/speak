@@ -1,7 +1,7 @@
 //! `openai` driven adapter (T030-T032): one warm `async-openai` client speaking
 //! the OpenAI-compatible speech server (ADR-0004).
 //!
-//! The adapter implements four driven ports over a single, shared keep-alive
+//! The adapter implements five driven ports over a single, shared keep-alive
 //! pool ([`OpenAiAdapter`]):
 //!
 //! - [`crate::ports::Transcriber`] / [`crate::ports::Translator`] use the typed
@@ -16,11 +16,15 @@
 //!   over the adapter's tuned warm `reqwest` pool.
 //! - [`crate::ports::VoiceRepository`] drives the server's non-OpenAI
 //!   `POST/GET/DELETE /voices` surface over that shared client.
+//! - [`crate::ports::ServerProbe`] hits `GET /health`, `GET /v1/models`, and the
+//!   runtime `POST /v1/realtime/translate` capability probe (FR-14) behind the
+//!   `check`/`health` use case (T047).
 //!
 //! Retry is NOT baked in here: a port-preserving decorator (T046) wraps each
 //! port at the composition root (T054). This adapter is a pure Adapter.
 
 mod client;
+mod probe;
 mod speech;
 mod transcription;
 mod translation;

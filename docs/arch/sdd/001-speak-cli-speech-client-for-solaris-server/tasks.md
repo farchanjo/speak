@@ -274,12 +274,24 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   the realtime CLI flags (`--translate`/`--no-translate`/`--echo`,
   `--output-device`) are T051.)
 - [ ] T045 `[application]` application **Facade** shared by CLI and daemon.
-- [ ] T047 `[application]` `check`/`health` use case: orchestrate the `ServerProbe`
+- [x] T047 `[application]` `check`/`health` use case: orchestrate the `ServerProbe`
   port (`GET /health`, `GET /v1/models`, realtime capability probe) and the
   `accel` cross-cutting probe into the data printed by `speak health` and
   `speak check` (FR-14). `config`, `devices`, and `completions` remain thin CLI
   adapters that read the `ConfigProvider`/device-enumeration adapters directly
   and need no dedicated use case.
+  (`src/application/check.rs`: `CheckUseCase` drives the `ServerProbe` port —
+  `health()` returns a `HealthOutcome` (healthy + advertised models + realtime
+  capability, the realtime probe best-effort), and `check()` folds in the `accel`
+  `Report` (passed as plain cross-cutting data per ADR-0003, never a port) into a
+  `CheckOutcome`. The supporting `ServerProbe` adapter landed on the openai
+  adapter (`src/adapters/openai/probe.rs`: `GET /health`, `GET /v1/models`
+  parsing, and the `GET /v1/realtime/translate` runtime capability probe over the
+  warm pool). Both unit-tested over the port doubles; the probe parsing has its
+  own units. LIVE-VERIFIED against solaris: `/health` 200, `/v1/models` advertises
+  omnivoice/tts-1/gpt-4o-mini-tts/whisper-1/large-v3, and the realtime endpoint
+  returns 404 so `supports_realtime` correctly reports the chunked fallback. CLI
+  wiring of `check`/`health` onto this use case is T054.)
 
 ## Driving adapters + composition root
 
