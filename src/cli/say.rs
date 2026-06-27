@@ -15,63 +15,67 @@ use speak::application::SayOptions;
 use speak::config::{self, Config};
 use speak::domain::audio_format::AudioFormat;
 use speak::domain::language::Language;
-use speak::domain::voice::{StandardVoice, VoiceMode};
+use speak::domain::voice::{StandardVoice, VoiceClone, VoiceMode};
 use speak::domain::voice_design::VoiceDesign;
-use speak::domain::{self, gen_params, speech_spec::SpeechSpec};
+use speak::domain::{gen_params, speech_spec::SpeechSpec, voice_design};
+use speak::ports::audio::AudioDeviceId;
+use speak::ports::presenter::{Presenter, Report, Table};
 use speak::ports::synthesizer::SynthesizedAudio;
 
 use super::AppFacade;
 use super::args::{GlobalArgs, SayArgs};
 
-/// Run the `say` subcommand.
+/// Run the `say` subcommand, emitting its RESULT through the Presenter.
 pub async fn run(
     facade: &AppFacade,
     cfg: &Config,
     globals: &GlobalArgs,
     args: SayArgs,
+    presenter: &mut dyn Presenter,
 ) -> Result<()> {
     if args.list_designs {
-        return list_designs();
+        return list_designs(presenter);
     }
     let text = resolve_text(&args.text)?;
     let format = args
         .format
         .map_or_else(|| cfg.tts.format.clone(), |f| f.as_str().to_owned());
-    let spec = build_spec(cfg, &args, &text, &format)?;
+    let spec = build_spec(cfg, globals, &args, &text, &format)?;
     let opts = SayOptions {
         play: !args.no_play && cfg.audio.output.play,
         volume: cfg.audio.output.volume,
-        devices: Vec::new(),
+        devices: args
+            .output_device
+            .iter()
+            .copied()
+            .map(AudioDeviceId)
+            .collect(),
     };
     let outcome = facade.say(&spec, &opts).await?;
-    if let Some(path) = &args.out {
-        write_output(cfg, path, &outcome.audio.bytes, globals.quiet).await?;
-    }
-    if !globals.quiet {
-        report(&outcome.audio);
-    }
-    Ok(())
+    let saved = match &args.out {
+        Some(path) => Some(write_output(cfg, path, &outcome.audio.bytes).await?),
+        None => None,
+    };
+    report(&outcome.audio, saved.as_deref(), presenter)
 }
 
-/// Print the canonical voice-design tags and exit (no network).
-fn list_designs() -> Result<()> {
-    println!("Valid voice-design tags (use with --instruct, comma-separated):");
-    for tag in domain::voice_design::CANONICAL_TAGS {
-        println!("  {tag}");
+/// Emit the canonical voice-design tags as a table and exit (no network).
+fn list_designs(presenter: &mut dyn Presenter) -> Result<()> {
+    let mut table = Table::new(["voice-design tag"]);
+    for tag in voice_design::CANONICAL_TAGS {
+        table = table.row([(*tag).to_owned()]);
     }
-    Ok(())
+    presenter.table(&table)
 }
 
-/// Persist the synthesized bytes to the resolved `-o` path.
-async fn write_output(cfg: &Config, path: &Path, bytes: &[u8], quiet: bool) -> Result<()> {
+/// Persist the synthesized bytes to the resolved `-o` path, returning that path.
+async fn write_output(cfg: &Config, path: &Path, bytes: &[u8]) -> Result<String> {
     let path = resolve_out_path(cfg, path);
     tokio::fs::write(&path, bytes)
         .await
         .with_context(|| format!("writing {}", path.display()))?;
-    if !quiet {
-        eprintln!("saved {} bytes to {}", bytes.len(), path.display());
-    }
-    Ok(())
+    tracing::info!(bytes = bytes.len(), path = %path.display(), "saved synthesized audio");
+    Ok(path.display().to_string())
 }
 
 /// Resolve a bare `-o` filename under `[general].save_dir` (FR-1).
@@ -87,13 +91,24 @@ fn resolve_out_path(cfg: &Config, path: &Path) -> PathBuf {
 
 /// Assemble the validated [`SpeechSpec`] from the `say` args + config.
 ///
-/// `--instruct` (or `[tts].instruct`) selects the voice-design Strategy; absent
-/// it, the configured `[tts].voice` is the standard-voice Strategy.
-fn build_spec(cfg: &Config, args: &SayArgs, text: &str, format: &str) -> Result<SpeechSpec> {
+/// Resolves the voice **Strategy** (FR-2): `--instruct` (or `[tts].instruct`)
+/// selects the voice-design arm; an explicit `--voice`/`SPEAK_VOICE` or a
+/// `--ref-text` selects the clone arm (carrying the optional reference
+/// transcript); otherwise the configured `[tts].voice` is the standard voice.
+fn build_spec(
+    cfg: &Config,
+    globals: &GlobalArgs,
+    args: &SayArgs,
+    text: &str,
+    format: &str,
+) -> Result<SpeechSpec> {
     let instruct = args.instruct.as_deref().or(cfg.tts.instruct.as_deref());
-    let voice = match instruct {
-        Some(tags) => VoiceMode::Design(VoiceDesign::parse(tags)?),
-        None => VoiceMode::Standard(StandardVoice::new(&cfg.tts.voice)?),
+    let voice = if let Some(tags) = instruct {
+        VoiceMode::Design(VoiceDesign::parse(tags)?)
+    } else if globals.voice.is_some() || args.ref_text.is_some() {
+        VoiceMode::Clone(VoiceClone::new(&cfg.tts.voice, args.ref_text.as_deref())?)
+    } else {
+        VoiceMode::Standard(StandardVoice::new(&cfg.tts.voice)?)
     };
     Ok(SpeechSpec::builder(text)
         .voice(voice)
@@ -104,11 +119,26 @@ fn build_spec(cfg: &Config, args: &SayArgs, text: &str, format: &str) -> Result<
         .build()?)
 }
 
-/// Report the server's inference-timing metadata to stderr.
-fn report(audio: &SynthesizedAudio) {
-    if let (Some(secs), Some(rtf)) = (&audio.audio_seconds, &audio.rtf) {
-        eprintln!("server synthesized {secs}s of audio (RTF {rtf})");
+/// Emit the synthesis RESULT (timing metadata + byte count + save path) through
+/// the Presenter so `--json` surfaces the server's `X-RTF`/`X-Audio-Seconds`
+/// (FR-1); the console renderer suppresses it under `--quiet`.
+fn report(
+    audio: &SynthesizedAudio,
+    saved: Option<&str>,
+    presenter: &mut dyn Presenter,
+) -> Result<()> {
+    let mut report = Report::titled("synthesis");
+    if let Some(secs) = &audio.audio_seconds {
+        report = report.entry("audio_seconds", secs.as_str());
     }
+    if let Some(rtf) = &audio.rtf {
+        report = report.entry("rtf", rtf.as_str());
+    }
+    report = report.entry("bytes", audio.bytes.len().to_string());
+    if let Some(path) = saved {
+        report = report.entry("saved", path);
+    }
+    presenter.report(&report)
 }
 
 /// Merge configured `[tts.gen]` params, then overlay per-call `--set` overrides.

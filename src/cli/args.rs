@@ -146,6 +146,9 @@ pub struct SayArgs {
     /// Repeatable generation param, key=value (e.g. --set num_step=32).
     #[arg(long = "set", value_name = "KEY=VALUE")]
     pub set: Vec<String>,
+    /// Output device `AudioDeviceID` for playback; repeatable to fan out (FR-11).
+    #[arg(long = "output-device", value_name = "ID")]
+    pub output_device: Vec<u32>,
     /// Print the valid voice-design tags and exit.
     #[arg(long)]
     pub list_designs: bool,

@@ -88,7 +88,7 @@ async fn dispatch(cli: Cli, cfg: &Config) -> Result<()> {
         Command::Devices(args) => cli::devices::run(&args),
         Command::Config { action } => cli::config::run(action, cfg, out),
         Command::Say(args) => {
-            cli::say::run(&factory.facade(args.native)?, cfg, &globals, args).await
+            cli::say::run(&factory.facade(args.native)?, cfg, &globals, args, out).await
         }
         Command::Transcribe(args) => cli::transcribe::run(&factory.facade(false)?, cfg, args).await,
         Command::Translate(args) => cli::translate::run(&factory.facade(false)?, cfg, args).await,
