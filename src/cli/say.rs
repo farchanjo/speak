@@ -15,8 +15,6 @@ use speak::application::SayOptions;
 use speak::config::{self, Config};
 use speak::domain::audio_format::AudioFormat;
 use speak::domain::language::Language;
-use speak::domain::voice::{StandardVoice, VoiceClone, VoiceMode};
-use speak::domain::voice_design::VoiceDesign;
 use speak::domain::{gen_params, speech_spec::SpeechSpec, voice_design};
 use speak::ports::audio::AudioDeviceId;
 use speak::ports::presenter::{Presenter, Report, Table};
@@ -103,13 +101,12 @@ fn build_spec(
     format: &str,
 ) -> Result<SpeechSpec> {
     let instruct = args.instruct.as_deref().or(cfg.tts.instruct.as_deref());
-    let voice = if let Some(tags) = instruct {
-        VoiceMode::Design(VoiceDesign::parse(tags)?)
-    } else if globals.voice.is_some() || args.ref_text.is_some() {
-        VoiceMode::Clone(VoiceClone::new(&cfg.tts.voice, args.ref_text.as_deref())?)
-    } else {
-        VoiceMode::Standard(StandardVoice::new(&cfg.tts.voice)?)
-    };
+    let voice = super::resolve_voice(
+        &cfg.tts.voice,
+        globals.voice.is_some(),
+        instruct,
+        args.ref_text.as_deref(),
+    )?;
     Ok(SpeechSpec::builder(text)
         .voice(voice)
         .language(Language::parse(&cfg.tts.language)?)

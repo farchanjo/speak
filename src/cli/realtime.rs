@@ -1,240 +1,134 @@
-//! `realtime` handler: capture the microphone and translate it live (FR-8).
+//! `realtime` handler (T051): capture the microphone and re-voice it live (FR-8).
 //!
-//! Runs the chunked ASR -> (MT) -> TTS loop over the request transport until
-//! Ctrl-C: capture one chunk, resample to 16 kHz mono, gate silence, translate
-//! or transcribe it, print the text, and optionally re-voice it. The SSE path and
-//! the use-case-driven realtime modes land with the `sse` adapter (T036/T044).
+//! A thin driving adapter: it maps the CLI flags to a [`RealtimeOptions`] value
+//! object, then runs the application [`RealtimeUseCase`] (via the [`AppFacade`])
+//! one chunk per loop iteration until Ctrl-C. The use case owns the
+//! capture -> ASR -> (MT) -> re-voice pipeline and the playback routing; this
+//! handler only resolves options, surfaces each caption through the [`Presenter`],
+//! and sends loop diagnostics to `tracing`. The pipeline mode is the exclusive
+//! `--translate` (default) / `--no-translate` / `--echo` group; the spoken output
+//! voice is `--instruct` (design) or the global `--voice` (clone / standard).
 
 use anyhow::Result;
 
-use speak::adapters::{coreaudio, libav};
-use speak::client::{self, SpeakRequest};
+use speak::application::{RealtimeOptions, RealtimeStep};
 use speak::config::Config;
-use speak::domain::voice_design::VoiceDesign;
-use speak::transport::Transport;
+use speak::domain::audio_format::AudioFormat;
+use speak::domain::language::Language;
+use speak::domain::realtime::RealtimeMode;
+use speak::ports::audio::AudioDeviceId;
+use speak::ports::presenter::Presenter;
 
+use super::AppFacade;
 use super::args::{GlobalArgs, RealtimeArgs};
 use super::say::gen_to_map;
 
-/// Run the `realtime` subcommand loop.
-pub async fn run(cfg: &Config, globals: &GlobalArgs, args: RealtimeArgs) -> Result<()> {
-    let transport = Transport::connect(cfg).await?;
-    let chunk = if args.chunk == 5 {
-        cfg.audio.input.chunk_secs
-    } else {
-        f64::from(args.chunk as u32)
-    };
-    if !globals.quiet {
-        eprintln!(
-            "realtime [{}]: {chunk:.0}s chunks, device {}, {} -> {}; Ctrl-C to stop",
-            transport.kind(),
-            args.device,
-            args.from.as_deref().unwrap_or("auto"),
-            args.to
-        );
-    }
+/// Run the `realtime` subcommand loop until Ctrl-C.
+pub async fn run(
+    facade: &AppFacade,
+    cfg: &Config,
+    globals: &GlobalArgs,
+    args: RealtimeArgs,
+    presenter: &mut dyn Presenter,
+) -> Result<()> {
+    let opts = build_options(cfg, globals, &args)?;
+    tracing::info!(
+        mode = opts.mode.as_str(),
+        chunk = opts.chunk_secs,
+        device = args.device,
+        from = opts.from.as_ref().map_or("auto", Language::as_str),
+        to = opts.to.as_str(),
+        "realtime loop starting; Ctrl-C to stop"
+    );
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
-                if !globals.quiet { eprintln!("stopping"); }
+                tracing::info!("realtime loop stopping");
                 return Ok(());
             }
-            res = iterate(&transport, cfg, &args, chunk, globals.quiet) => {
-                if let Err(e) = res { eprintln!("warn: {e:#}"); }
-            }
+            res = facade.realtime_step(&opts) => match res {
+                Ok(Some(step)) => emit_step(&step, presenter)?,
+                Ok(None) => {}
+                Err(e) => tracing::warn!("realtime chunk failed: {e:#}"),
+            },
         }
     }
 }
 
-/// Capture, gate, translate, print, and optionally re-voice one chunk.
-async fn iterate(
-    transport: &Transport,
+/// Surface one processed chunk's spoken text through the Presenter.
+fn emit_step(step: &RealtimeStep, presenter: &mut dyn Presenter) -> Result<()> {
+    presenter.line(&step.output_text)
+}
+
+/// Assemble the [`RealtimeOptions`] value object from the flags + config.
+fn build_options(
     cfg: &Config,
+    globals: &GlobalArgs,
     args: &RealtimeArgs,
-    chunk: f64,
-    quiet: bool,
-) -> Result<()> {
-    let device = args.device;
-    let pcm =
-        tokio::task::spawn_blocking(move || coreaudio::capture_chunk(device, chunk)).await??;
-    let mono = tokio::task::spawn_blocking(move || libav::to_asr_mono16(&pcm)).await??;
-    if cfg.audio.input.vad && libav::rms_s16(&mono) < silence_floor(cfg) {
-        return Ok(());
-    }
-    let wav = libav::wav_mono16(&mono, libav::ASR_RATE);
-    let text = translate_chunk(transport, cfg, args, wav).await?;
-    if text.is_empty() {
-        return Ok(());
-    }
-    println!("[{}] {text}", spoken_lang(cfg, args));
-    if args.speak {
-        speak_text(transport, cfg, args, &text, quiet).await?;
-    }
-    Ok(())
-}
-
-/// Linear RMS floor from the configured silence threshold (dBFS).
-fn silence_floor(cfg: &Config) -> f64 {
-    10f64.powf(cfg.audio.input.silence_threshold_db / 20.0)
-}
-
-/// Multipart ASR fields (model + response format, optional language hint).
-fn asr_fields(model: &str, language: Option<&str>, format: &str) -> Vec<client::Field> {
-    let mut fields = vec![
-        ("model".to_owned(), model.to_owned()),
-        ("response_format".to_owned(), format.to_owned()),
-    ];
-    if let Some(lang) = language {
-        fields.push(("language".to_owned(), lang.to_owned()));
-    }
-    fields
-}
-
-/// Transcribe one chunk in the source language.
-async fn transcribe_chunk(
-    transport: &Transport,
-    cfg: &Config,
-    lang: Option<&str>,
-    wav: Vec<u8>,
-) -> Result<String> {
-    let fields = asr_fields(&cfg.asr.model, lang, "json");
-    transport
-        .proxy_multipart(
-            "/v1/audio/transcriptions",
-            &fields,
-            Some((wav, "chunk.wav".to_owned())),
-            "file",
-        )
-        .await?
-        .into_text("json")
-}
-
-/// Translate one chunk, picking transcribe / Whisper-English / chat-MT.
-async fn translate_chunk(
-    transport: &Transport,
-    cfg: &Config,
-    args: &RealtimeArgs,
-    wav: Vec<u8>,
-) -> Result<String> {
-    if args.repeat {
-        return transcribe_chunk(transport, cfg, args.from.as_deref(), wav).await;
-    }
-    if args.to.eq_ignore_ascii_case("en") {
-        let fields = asr_fields(&cfg.asr.model, None, "json");
-        return transport
-            .proxy_multipart(
-                "/v1/audio/translations",
-                &fields,
-                Some((wav, "chunk.wav".to_owned())),
-                "file",
-            )
-            .await?
-            .into_text("json");
-    }
-    let src = transcribe_chunk(transport, cfg, args.from.as_deref(), wav).await?;
-    match (&cfg.general.translate_url, &cfg.general.translate_model) {
-        (Some(url), Some(model)) => chat_translate(transport, url, model, &src, &args.to).await,
-        _ => Ok(src),
-    }
-}
-
-/// Translate `text` into `target` via the configured chat-completions endpoint.
-async fn chat_translate(
-    transport: &Transport,
-    url: &str,
-    model: &str,
-    text: &str,
-    target: &str,
-) -> Result<String> {
-    let body = serde_json::json!({
-        "model": model,
-        "messages": [
-            { "role": "system", "content": format!("Translate the user message into {target}. Reply with only the translation.") },
-            { "role": "user", "content": text },
-        ],
-    });
-    let value = transport
-        .proxy("POST", url, Some(body))
-        .await?
-        .into_json()?;
-    value
-        .pointer("/choices/0/message/content")
-        .and_then(serde_json::Value::as_str)
-        .map(|s| s.trim().to_owned())
-        .ok_or_else(|| anyhow::anyhow!("chat translation missing choices[0].message.content"))
-}
-
-/// Language the realtime output is spoken in (target, or source when repeating).
-fn spoken_lang<'a>(cfg: &'a Config, args: &'a RealtimeArgs) -> &'a str {
-    if args.repeat {
-        args.from.as_deref().unwrap_or(cfg.tts.language.as_str())
-    } else {
-        args.to.as_str()
-    }
-}
-
-/// Synthesize and play `text` in the configured output voice.
-async fn speak_text(
-    transport: &Transport,
-    cfg: &Config,
-    args: &RealtimeArgs,
-    text: &str,
-    quiet: bool,
-) -> Result<()> {
-    let instruct = validate_instruct(args.instruct.as_deref().or(cfg.tts.instruct.as_deref()))?;
-    let voice = if instruct.is_some() {
-        None
-    } else {
-        Some(cfg.tts.voice.as_str())
-    };
-    let req = SpeakRequest {
-        input: text,
-        model: &cfg.tts.model,
+) -> Result<RealtimeOptions> {
+    let mode = args.mode();
+    let from = args
+        .from
+        .as_deref()
+        .or(cfg.realtime.from.as_deref())
+        .map(Language::parse)
+        .transpose()?;
+    let to = Language::parse(&args.to)?;
+    let instruct = args.instruct.as_deref().or(cfg.tts.instruct.as_deref());
+    let voice = super::resolve_voice(&cfg.tts.voice, globals.voice.is_some(), instruct, None)?;
+    let default_lang = Language::parse(&cfg.tts.language)?;
+    Ok(RealtimeOptions {
+        output_language: output_language(mode, &to, from.as_ref(), &default_lang),
+        mode,
+        from,
+        to,
         voice,
-        response_format: &cfg.tts.format,
-        speed: 1.0,
-        language: spoken_lang(cfg, args),
-        instruct: instruct.as_deref(),
-        ref_text: None,
-        duration: None,
-        extra: gen_to_map(&cfg.tts.gen_params),
-    };
-    let reply = transport
-        .proxy("POST", "/v1/audio/speech", Some(req.to_body()))
-        .await?
-        .into_audio()?;
-    play_bytes(reply.bytes, reply.content_type, cfg, quiet).await
-}
-
-/// Validate an optional voice-design instruct string against the canonical tags.
-fn validate_instruct(instruct: Option<&str>) -> Result<Option<String>> {
-    instruct
-        .map(|raw| VoiceDesign::parse(raw).map(|d| d.instruct()))
-        .transpose()
-}
-
-/// Decode encoded audio and play it through the native CoreAudio mixer.
-async fn play_bytes(bytes: Vec<u8>, content_type: String, cfg: &Config, quiet: bool) -> Result<()> {
-    let opts = libav::DecodeOptions {
-        threads: cfg.ffmpeg.threads,
-        log_level: cfg.ffmpeg.log_level.clone(),
-    };
-    let volume = cfg.audio.output.volume;
-    let (samples, frames, secs) = tokio::task::spawn_blocking(move || -> Result<_> {
-        let pcm = libav::decode(bytes, &opts)?;
-        let stats = (pcm.samples().len(), pcm.frames(), pcm.duration_secs());
-        coreaudio::play(&pcm, volume)?;
-        Ok(stats)
+        format: AudioFormat::parse(&cfg.tts.format)?,
+        speed: cfg.tts.speed,
+        gen_params: gen_to_map(&cfg.tts.gen_params),
+        chunk_secs: chunk_secs(cfg, args),
+        device: (args.device != 0).then_some(AudioDeviceId(args.device)),
+        outputs: args
+            .output_device
+            .iter()
+            .copied()
+            .map(AudioDeviceId)
+            .collect(),
+        volume: cfg.audio.output.volume,
+        vad: cfg.audio.input.vad,
+        silence_floor: silence_floor(cfg.audio.input.silence_threshold_db),
     })
-    .await??;
-    if !quiet {
-        eprintln!(
-            "decoded {content_type}: {samples} samples ({frames} frames @ {}Hz, {secs:.2}s); \
-             played via native CoreAudio mixer",
-            libav::PLAY_RATE
-        );
+}
+
+/// The language the re-voiced output is spoken in: the target when translating,
+/// otherwise the source hint (falling back to the configured default).
+fn output_language(
+    mode: RealtimeMode,
+    to: &Language,
+    from: Option<&Language>,
+    default: &Language,
+) -> Language {
+    match mode {
+        RealtimeMode::Translate => to.clone(),
+        RealtimeMode::NoTranslate | RealtimeMode::Echo => {
+            from.cloned().unwrap_or_else(|| default.clone())
+        }
     }
-    Ok(())
+}
+
+/// Resolve the capture chunk length: the `--chunk` flag, or the configured
+/// `[audio.input].chunk_secs` when the flag is left at its default.
+fn chunk_secs(cfg: &Config, args: &RealtimeArgs) -> f64 {
+    if args.chunk == 5 {
+        cfg.audio.input.chunk_secs
+    } else {
+        f64::from(args.chunk as u32)
+    }
+}
+
+/// Linear RMS floor from a silence threshold expressed in dBFS.
+fn silence_floor(threshold_db: f64) -> f64 {
+    10f64.powf(threshold_db / 20.0)
 }
 
 #[cfg(test)]
@@ -242,37 +136,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn asr_fields_omit_language_when_none() {
-        let fields = asr_fields("whisper-1", None, "json");
-        assert_eq!(
-            fields,
-            vec![
-                ("model".to_owned(), "whisper-1".to_owned()),
-                ("response_format".to_owned(), "json".to_owned()),
-            ]
-        );
+    fn silence_floor_maps_dbfs_to_linear_amplitude() {
+        assert!((silence_floor(0.0) - 1.0).abs() < 1e-9);
+        assert!((silence_floor(-20.0) - 0.1).abs() < 1e-9);
     }
 
     #[test]
-    fn asr_fields_include_language_when_present() {
-        let fields = asr_fields("whisper-1", Some("pt"), "text");
-        assert!(fields.contains(&("language".to_owned(), "pt".to_owned())));
-        assert_eq!(fields.len(), 3);
+    fn output_language_is_target_when_translating() {
+        let to = Language::parse("en").unwrap();
+        let from = Language::parse("pt").unwrap();
+        let default = Language::parse("pt-BR").unwrap();
+        let out = output_language(RealtimeMode::Translate, &to, Some(&from), &default);
+        assert_eq!(out.as_str(), to.as_str());
     }
 
     #[test]
-    fn validate_instruct_accepts_canonical_tags() {
-        let out = validate_instruct(Some("Female, British Accent")).unwrap();
-        assert_eq!(out.as_deref(), Some("Female, British Accent"));
-    }
-
-    #[test]
-    fn validate_instruct_passes_none_through() {
-        assert!(validate_instruct(None).unwrap().is_none());
-    }
-
-    #[test]
-    fn validate_instruct_rejects_free_text() {
-        assert!(validate_instruct(Some("sounds friendly")).is_err());
+    fn output_language_is_source_when_not_translating() {
+        let to = Language::parse("en").unwrap();
+        let from = Language::parse("pt").unwrap();
+        let default = Language::parse("ja").unwrap();
+        let with_from = output_language(RealtimeMode::NoTranslate, &to, Some(&from), &default);
+        assert_eq!(with_from.as_str(), from.as_str());
+        let without = output_language(RealtimeMode::Echo, &to, None, &default);
+        assert_eq!(without.as_str(), default.as_str());
     }
 }

@@ -10,10 +10,14 @@
 
 use std::path::Path;
 
+use anyhow::Result;
+
 use speak::adapters::coreaudio::CoreAudio;
 use speak::adapters::libav::LibavCodec;
 use speak::adapters::openai::OpenAiAdapter;
 use speak::application::SpeakFacade;
+use speak::domain::voice::{StandardVoice, VoiceClone, VoiceMode};
+use speak::domain::voice_design::VoiceDesign;
 
 pub mod args;
 pub mod check;
@@ -38,6 +42,25 @@ pub fn file_name(path: &Path) -> String {
         .and_then(|s| s.to_str())
         .unwrap_or("audio")
         .to_owned()
+}
+
+/// Resolve the voice **Strategy** (FR-2) shared by `say` and `realtime`:
+/// `instruct` tags select the voice-design arm; an `explicit_voice` flag or a
+/// `ref_text` selects the clone arm (carrying the reference transcript); else the
+/// configured `voice_name` is the standard voice.
+pub fn resolve_voice(
+    voice_name: &str,
+    explicit_voice: bool,
+    instruct: Option<&str>,
+    ref_text: Option<&str>,
+) -> Result<VoiceMode> {
+    if let Some(tags) = instruct {
+        Ok(VoiceMode::Design(VoiceDesign::parse(tags)?))
+    } else if explicit_voice || ref_text.is_some() {
+        Ok(VoiceMode::Clone(VoiceClone::new(voice_name, ref_text)?))
+    } else {
+        Ok(VoiceMode::Standard(StandardVoice::new(voice_name)?))
+    }
 }
 
 #[cfg(test)]

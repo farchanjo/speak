@@ -183,29 +183,59 @@ pub struct TranslateArgs {
 }
 
 /// `realtime` arguments.
+///
+/// The pipeline mode is an exclusive group of `--translate` (default),
+/// `--no-translate`, and `--echo` (FR-8); the spoken output voice is selected by
+/// `--instruct` (design) or the global `--voice` (clone / standard).
 #[derive(Args, Debug)]
+#[command(group(
+    clap::ArgGroup::new("realtime_mode")
+        .multiple(false)
+        .args(["translate", "no_translate", "echo"])
+))]
 pub struct RealtimeArgs {
     /// Source language hint (auto-detect when omitted).
     #[arg(long, value_name = "LANG")]
     pub from: Option<String>,
-    /// Target language (`en` uses Whisper translate directly).
+    /// Target language for `--translate` (`en` uses Whisper translate directly).
     #[arg(long, default_value = "en", value_name = "LANG")]
     pub to: String,
+    /// Translate the source speech, then re-voice the translation (default).
+    #[arg(long)]
+    pub translate: bool,
     /// Re-voice the source transcript without translating it.
+    #[arg(long = "no-translate")]
+    pub no_translate: bool,
+    /// Play the raw capture back, then re-voice it.
     #[arg(long)]
-    pub repeat: bool,
-    /// Synthesize and play the result through the speaker.
-    #[arg(long)]
-    pub speak: bool,
+    pub echo: bool,
     /// Voice design tags for the spoken output (e.g. "Female, British Accent").
     #[arg(long, value_name = "TAGS")]
     pub instruct: Option<String>,
+    /// Output device `AudioDeviceID` for playback; repeatable to fan out (FR-11).
+    #[arg(long = "output-device", value_name = "ID")]
+    pub output_device: Vec<u32>,
     /// Chunk length in seconds.
     #[arg(long, default_value_t = 5, value_name = "SECS")]
     pub chunk: u64,
     /// Input device index (0 = system default).
     #[arg(long, default_value_t = 0, value_name = "IDX")]
     pub device: u32,
+}
+
+impl RealtimeArgs {
+    /// Resolve the selected pipeline mode (default `Translate`).
+    #[must_use]
+    pub fn mode(&self) -> speak::domain::realtime::RealtimeMode {
+        use speak::domain::realtime::RealtimeMode;
+        if self.no_translate {
+            RealtimeMode::NoTranslate
+        } else if self.echo {
+            RealtimeMode::Echo
+        } else {
+            RealtimeMode::Translate
+        }
+    }
 }
 
 /// `devices` arguments.
@@ -346,5 +376,25 @@ mod tests {
         assert_eq!(TextFormat::Srt.as_str(), "srt");
         assert_eq!(TextFormat::Vtt.as_str(), "vtt");
         assert_eq!(TextFormat::VerboseJson.as_str(), "verbose_json");
+    }
+
+    #[test]
+    fn realtime_mode_defaults_to_translate_and_honours_flags() {
+        use speak::domain::realtime::RealtimeMode;
+        let make = |translate, no_translate, echo| RealtimeArgs {
+            from: None,
+            to: "en".to_owned(),
+            translate,
+            no_translate,
+            echo,
+            instruct: None,
+            output_device: Vec::new(),
+            chunk: 5,
+            device: 0,
+        };
+        assert_eq!(make(false, false, false).mode(), RealtimeMode::Translate);
+        assert_eq!(make(true, false, false).mode(), RealtimeMode::Translate);
+        assert_eq!(make(false, true, false).mode(), RealtimeMode::NoTranslate);
+        assert_eq!(make(false, false, true).mode(), RealtimeMode::Echo);
     }
 }

@@ -96,7 +96,9 @@ async fn dispatch(cli: Cli, cfg: &Config) -> Result<()> {
         Command::Translate(args) => {
             cli::translate::run(&factory.facade(false)?, cfg, args, out).await
         }
-        Command::Realtime(args) => cli::realtime::run(cfg, &globals, args).await,
+        Command::Realtime(args) => {
+            cli::realtime::run(&factory.facade(false)?, cfg, &globals, args, out).await
+        }
         Command::Voices { action } => cli::voices::run(&factory.facade(false)?, action, out).await,
         Command::Daemon(args) => daemon::run(cfg, args).await,
         Command::Completions { .. } => Ok(()),
