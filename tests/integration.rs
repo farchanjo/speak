@@ -200,3 +200,95 @@ fn voice_design_say_is_accepted() {
         );
     });
 }
+
+/// Drive one chunk through the `sse` adapter end-to-end (T036): mint a French
+/// clip with the `openai` Synthesizer, POST it to `/v1/realtime/translate`, and
+/// assert the typed `transcript` + `audio` + `done` frames stream back. Skips
+/// when the realtime endpoint is absent (the chunked fallback covers that path).
+#[tokio::test]
+async fn realtime_sse_streams_transcript_and_audio() {
+    use std::time::Duration;
+
+    use speak::adapters::openai::OpenAiAdapter;
+    use speak::adapters::sse::{RealtimeRequest, SseRealtimeClient};
+    use speak::config::{Config, GlobalFlags};
+    use speak::domain::audio_format::AudioFormat;
+    use speak::domain::language::Language;
+    use speak::domain::speech_spec::SpeechSpec;
+    use speak::domain::voice::{StandardVoice, VoiceMode};
+    use speak::ports::probe::ServerProbe;
+    use speak::ports::realtime::{RealtimeFrame, RealtimeStream};
+    use speak::ports::synthesizer::Synthesizer;
+
+    let (host, authority) = host_port();
+    if !server_reachable(&authority) {
+        eprintln!("SKIP realtime_sse: server {authority} unreachable (set SPEAK_HOST to run)");
+        return;
+    }
+    let flags = GlobalFlags {
+        host: Some(host.clone()),
+        api_key: None,
+        lang: None,
+        voice: None,
+        quiet: true,
+    };
+    let cfg = Config::load(flags).expect("load config");
+
+    let openai = OpenAiAdapter::new(&cfg).expect("openai adapter");
+    if !openai.supports_realtime().await.unwrap_or(false) {
+        eprintln!("SKIP realtime_sse: /v1/realtime/translate absent (chunked fallback path)");
+        return;
+    }
+
+    // Mint a short French clip so Whisper detects `fr` and translates to `en`.
+    let spec = SpeechSpec::builder("Bonjour, comment allez-vous aujourd'hui?")
+        .voice(VoiceMode::Standard(StandardVoice::new("alloy").unwrap()))
+        .language(Language::parse("fr").unwrap())
+        .format(AudioFormat::Wav)
+        .build()
+        .unwrap();
+    let chunk = openai.synthesize(&spec).await.expect("mint chunk");
+    assert!(!chunk.bytes.is_empty(), "synthesized chunk is empty");
+
+    let sse = SseRealtimeClient::new(&cfg).expect("sse client");
+    let request = RealtimeRequest {
+        audio: chunk.bytes,
+        filename: "chunk.wav".to_owned(),
+        to: Some("en".to_owned()),
+        translate: true,
+        voice: None,
+        instruct: Some("Female, British Accent".to_owned()),
+        language: Some("fr".to_owned()),
+        format: "mp3".to_owned(),
+    };
+    let mut stream = sse.stream(request, cfg.retry.policy, cfg.retry.jitter_seed);
+
+    let (mut transcript, mut audio, mut done) = (false, false, false);
+    let drive = async {
+        while let Some(frame) = stream.recv().await.expect("recv frame") {
+            match frame {
+                RealtimeFrame::Transcript { text } => {
+                    assert!(!text.trim().is_empty(), "empty transcript");
+                    transcript = true;
+                }
+                RealtimeFrame::Audio { data, .. } => {
+                    assert!(!data.is_empty(), "empty audio chunk");
+                    audio = true;
+                }
+                RealtimeFrame::Translation { .. } => {}
+                RealtimeFrame::Done => {
+                    done = true;
+                    break;
+                }
+                RealtimeFrame::Error { message } => panic!("server error frame: {message}"),
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(90), drive)
+        .await
+        .expect("realtime SSE drive timed out");
+
+    assert!(transcript, "expected a transcript frame");
+    assert!(audio, "expected an audio frame");
+    assert!(done, "expected a terminal done frame");
+}
