@@ -17,7 +17,7 @@
 use std::ffi::CStr;
 use std::os::raw::c_void;
 use std::ptr::{NonNull, null};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
@@ -39,6 +39,8 @@ use objc2_core_foundation::CFDictionary;
 use objc2_foundation::{NSArray, NSDictionary, NSNumber, NSString, NSUUID};
 
 use crate::domain::pcm::PcmBuffer;
+
+use super::stream::{CaptureRing, RingCapture};
 
 /// A heterogeneous Core Audio configuration dictionary (string keys, object vals).
 type ConfigDict = NSDictionary<NSString, AnyObject>;
@@ -192,6 +194,103 @@ impl Drop for IoProc {
             let _ = AudioDeviceStop(self.device, self.id);
             let _ = AudioDeviceDestroyIOProcID(self.device, self.id);
         }
+    }
+}
+
+/// A continuous output tap feeding a [`CaptureRing`] (ADR-0017), stopped + torn
+/// down on drop in order: IO proc, aggregate device, then process tap.
+pub(super) struct OutputCapture {
+    _proc: IoProc,
+    _aggregate: AggregateDevice,
+    _tap: ProcessTap,
+    ring: Arc<CaptureRing>,
+}
+
+impl RingCapture for OutputCapture {
+    fn ring(&self) -> &CaptureRing {
+        &self.ring
+    }
+}
+
+/// Start the system-output tap as a continuous capture bound to a fresh ring
+/// (ADR-0017). The IO proc runs until the returned handle drops.
+pub(super) fn start_output_capture(_device: Option<u32>, cap_secs: f64) -> Result<OutputCapture> {
+    let tap = ProcessTap::global()?;
+    let aggregate = AggregateDevice::wrapping(&tap)?;
+    // SAFETY: read the aggregate's nominal rate, then register + start the IO proc.
+    let (proc, ring) = unsafe {
+        let rate = nominal_sample_rate(aggregate.id)?;
+        let ring = Arc::new(CaptureRing::new(rate, cap_secs));
+        let proc = start_ring_ioproc(aggregate.id, &ring)?;
+        (proc, ring)
+    };
+    Ok(OutputCapture {
+        _proc: proc,
+        _aggregate: aggregate,
+        _tap: tap,
+        ring,
+    })
+}
+
+/// The continuous IO proc: append the input buffer's float samples to the ring.
+///
+/// # Safety
+/// Matches the `AudioDeviceIOProc` ABI; `client` is the `CaptureRing` pointer
+/// passed to `AudioDeviceCreateIOProcID`, valid until the proc is destroyed.
+unsafe extern "C-unwind" fn ring_io_proc(
+    _device: AudioObjectID,
+    _now: NonNull<AudioTimeStamp>,
+    input: NonNull<AudioBufferList>,
+    _in_time: NonNull<AudioTimeStamp>,
+    _out: NonNull<AudioBufferList>,
+    _out_time: NonNull<AudioTimeStamp>,
+    client: *mut c_void,
+) -> i32 {
+    // SAFETY: `client` is the live `CaptureRing` behind the capture's Arc.
+    let ring = unsafe { &*client.cast::<CaptureRing>() };
+    // SAFETY: Core Audio hands us a valid buffer list for this IO cycle.
+    let list = unsafe { input.as_ref() };
+    if list.mNumberBuffers == 0 {
+        return 0;
+    }
+    let buffer = list.mBuffers[0];
+    if buffer.mData.is_null() || buffer.mDataByteSize == 0 {
+        return 0;
+    }
+    let count = buffer.mDataByteSize as usize / size_of::<f32>();
+    // SAFETY: the tap stream is interleaved float; `count` floats are valid.
+    let data = unsafe { std::slice::from_raw_parts(buffer.mData.cast::<f32>(), count) };
+    ring.push(data, buffer.mNumberChannels as u16);
+    0
+}
+
+/// Register + start a ring IO proc on `device`; the ring Arc outlives the proc.
+///
+/// # Safety
+/// `device` must be a valid capture device; `ring` must outlive the returned
+/// proc (the caller keeps the Arc alongside it and drops the proc first).
+unsafe fn start_ring_ioproc(device: AudioObjectID, ring: &Arc<CaptureRing>) -> Result<IoProc> {
+    unsafe {
+        let client = Arc::as_ptr(ring).cast::<c_void>().cast_mut();
+        let mut proc_id: AudioDeviceIOProcID = None;
+        let st = AudioDeviceCreateIOProcID(
+            device,
+            Some(ring_io_proc),
+            client,
+            NonNull::from(&mut proc_id),
+        );
+        if st != 0 || proc_id.is_none() {
+            bail!("AudioDeviceCreateIOProcID (stream) failed (OSStatus {st})");
+        }
+        let proc = IoProc {
+            device,
+            id: proc_id,
+        };
+        let st = AudioDeviceStart(device, proc_id);
+        if st != 0 {
+            bail!("AudioDeviceStart (stream) failed (OSStatus {st})");
+        }
+        Ok(proc)
     }
 }
 

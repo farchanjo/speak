@@ -33,6 +33,8 @@ use objc2_core_audio::{
 use crate::domain::pcm::PcmBuffer;
 use crate::ports::audio::AudioDeviceId;
 
+use super::stream::{CaptureRing, RingCapture};
+
 /// Play interleaved float PCM through the native `CoreAudio` mixer on the default
 /// output device, blocking until the buffer finishes (or a safety timeout).
 pub fn play(pcm: &PcmBuffer, volume: f32) -> Result<()> {
@@ -413,5 +415,123 @@ fn wait_capture(store: &Arc<Mutex<Vec<f32>>>, needed: usize, secs: f64) {
             break;
         }
         std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// A continuous microphone/line-in capture feeding a [`CaptureRing`] (ADR-0017),
+/// stopped on drop (the tap is removed and the engine stopped; the default-input
+/// guard restores the prior default input).
+pub(super) struct InputCapture {
+    engine: Retained<AVAudioEngine>,
+    input: Retained<AVAudioInputNode>,
+    _guard: Option<DefaultInputGuard>,
+    ring: Arc<CaptureRing>,
+}
+
+impl RingCapture for InputCapture {
+    fn ring(&self) -> &CaptureRing {
+        &self.ring
+    }
+}
+
+impl Drop for InputCapture {
+    fn drop(&mut self) {
+        // SAFETY: remove the tap and stop the engine on our own objects; the
+        // default-input guard restores the prior default input afterwards.
+        unsafe {
+            self.input.removeTapOnBus(0);
+            self.engine.stop();
+        }
+    }
+}
+
+/// Start a continuous input capture bound to a fresh ring (ADR-0017). Runs until
+/// the returned handle drops. `device` pins the default input (ADR-0011).
+pub(super) fn start_input_capture(device: Option<u32>, cap_secs: f64) -> Result<InputCapture> {
+    let device = device.map(AudioDeviceId).map(|d| d.0);
+    autoreleasepool(|_| {
+        objc2::exception::catch(|| start_input_inner(device, cap_secs))
+            .map_err(|e| anyhow!("CoreAudio input capture raised an exception: {e:?}"))?
+    })
+}
+
+fn start_input_inner(device: Option<u32>, cap_secs: f64) -> Result<InputCapture> {
+    // SAFETY: the AVAudioEngine input tap is wired per the documented contract;
+    // the tap closure only pushes into the ring and is removed before the engine
+    // stops. The default input is pinned BEFORE the input node materializes.
+    unsafe {
+        let guard = pin_default_input(device)?;
+        let engine = AVAudioEngine::new();
+        let input = engine.inputNode();
+        let format = input.outputFormatForBus(0);
+        let rate = format.sampleRate();
+        let channels = usize::try_from(format.channelCount()).unwrap_or(0);
+        if rate <= 0.0 || channels == 0 {
+            bail!("microphone reported an invalid format (no input permission?)");
+        }
+        let ring = Arc::new(CaptureRing::new(rate as u32, cap_secs));
+        install_ring_tap(&input, &format, &ring);
+        engine.prepare();
+        engine
+            .startAndReturnError()
+            .map_err(|e| anyhow!("microphone engine start failed: {e:?}"))?;
+        Ok(InputCapture {
+            engine,
+            input,
+            _guard: guard,
+            ring,
+        })
+    }
+}
+
+/// Install a tap on the input bus that appends every buffer to the ring.
+unsafe fn install_ring_tap(
+    input: &AVAudioInputNode,
+    format: &AVAudioFormat,
+    ring: &Arc<CaptureRing>,
+) {
+    unsafe {
+        let sink = Arc::clone(ring);
+        let block = RcBlock::new(
+            move |buf: NonNull<AVAudioPCMBuffer>, _when: NonNull<AVAudioTime>| {
+                // SAFETY: AVFAudio guarantees `buf` is valid for the callback.
+                append_buffer_to_ring(buf.as_ref(), &sink);
+            },
+        );
+        input.installTapOnBus_bufferSize_format_block(
+            0,
+            4096,
+            Some(format),
+            RcBlock::as_ptr(&block),
+        );
+    }
+}
+
+/// Append one captured buffer (interleaving if needed) to the ring.
+unsafe fn append_buffer_to_ring(buf: &AVAudioPCMBuffer, ring: &CaptureRing) {
+    unsafe {
+        let frames = buf.frameLength() as usize;
+        if frames == 0 {
+            return;
+        }
+        let format = buf.format();
+        let channels = usize::try_from(format.channelCount()).unwrap_or(0);
+        let data = buf.floatChannelData();
+        if channels == 0 || data.is_null() {
+            return;
+        }
+        if format.isInterleaved() {
+            let slice = std::slice::from_raw_parts((*data).as_ptr(), frames * channels);
+            ring.push(slice, channels as u16);
+        } else {
+            let mut interleaved = Vec::with_capacity(frames * channels);
+            for f in 0..frames {
+                for c in 0..channels {
+                    let plane = (*data.add(c)).as_ptr();
+                    interleaved.push(*plane.add(f));
+                }
+            }
+            ring.push(&interleaved, channels as u16);
+        }
     }
 }

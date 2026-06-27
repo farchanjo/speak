@@ -7,6 +7,7 @@
 
 use anyhow::{Result, bail};
 
+use crate::domain::capture_source::CaptureSource;
 use crate::domain::pcm::PcmBuffer;
 use crate::ports::audio::{AudioDevice, AudioDeviceId};
 
@@ -45,4 +46,13 @@ pub fn enumerate() -> Result<Vec<AudioDevice>> {
 /// TCC responsibility disclaim is macOS-only; a no-op elsewhere (ADR-0016).
 pub fn reexec_disclaimed() -> Result<()> {
     Ok(())
+}
+
+/// Continuous streaming capture is macOS-only (ADR-0017).
+pub(crate) fn start_capture_stream(
+    _source: &CaptureSource,
+    _chunk_secs: f64,
+    _cap_secs: f64,
+) -> Result<tokio::sync::mpsc::Receiver<PcmBuffer>> {
+    bail!("continuous capture is only implemented on macOS (CoreAudio)")
 }

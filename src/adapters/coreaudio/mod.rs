@@ -39,6 +39,37 @@ impl CoreAudio {
     pub fn new() -> Self {
         Self
     }
+
+    /// Start a continuous capture stream for `source` (ADR-0017): one long-lived
+    /// native capture feeds `chunk_secs` chunks over a channel, bounded by
+    /// `cap_secs`, decoupling capture from the SSE consumer so a slow round trip
+    /// never drops audio.
+    pub fn capture_stream(
+        &self,
+        source: &CaptureSource,
+        chunk_secs: f64,
+        cap_secs: f64,
+    ) -> Result<NativeCaptureStream> {
+        Ok(NativeCaptureStream {
+            rx: backend::start_capture_stream(source, chunk_secs, cap_secs)?,
+        })
+    }
+}
+
+/// A continuous capture stream of `chunk_secs`-sized chunks (ADR-0017).
+///
+/// Yields chunks until dropped (which stops the underlying native capture);
+/// `tokio` stays inside the adapter, like the `sse` reconnecting stream.
+pub struct NativeCaptureStream {
+    rx: tokio::sync::mpsc::Receiver<PcmBuffer>,
+}
+
+impl NativeCaptureStream {
+    /// The next captured chunk (device rate/channels), or `None` once the capture
+    /// has ended.
+    pub async fn recv(&mut self) -> Option<PcmBuffer> {
+        self.rx.recv().await
+    }
 }
 
 /// Flat-path helper: capture from a device index (0 = system default) used by
