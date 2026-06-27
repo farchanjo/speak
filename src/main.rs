@@ -21,6 +21,7 @@ use speak::domain::language::Language;
 use speak::domain::speech_spec::SpeechSpec;
 use speak::domain::voice::{StandardVoice, VoiceMode};
 use speak::domain::voice_design::VoiceDesign;
+use speak::ports::audio::AudioDevice;
 use speak::ports::synthesizer::{SynthesizedAudio, Synthesizer};
 use speak::ports::transcriber::{TranscribeRequest, Transcriber};
 use speak::ports::translator::Translator;
@@ -89,6 +90,8 @@ enum Command {
     Check,
     /// Print the server `/health` JSON.
     Health,
+    /// List input/output audio devices and their `AudioDeviceID`s.
+    Devices(DevicesArgs),
     /// Manage the config file.
     Config {
         #[command(subcommand)]
@@ -185,6 +188,13 @@ struct RealtimeArgs {
     /// Input device index (0 = system default).
     #[arg(long, default_value_t = 0, value_name = "IDX")]
     device: u32,
+}
+
+#[derive(Args, Debug)]
+struct DevicesArgs {
+    /// Emit the device list as JSON.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -287,6 +297,7 @@ async fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Check => cmd_check(&cfg),
         Command::Health => cmd_health(&cfg).await,
+        Command::Devices(args) => cmd_devices(&args),
         Command::Config { action } => cmd_config(action, &cfg),
         Command::Say(args) => cmd_say(&cfg, &cli.globals, args).await,
         Command::Transcribe(args) => cmd_transcribe(&cfg, args).await,
@@ -356,6 +367,67 @@ fn list_or(items: &[String], empty: &str) -> String {
     } else {
         items.join(", ")
     }
+}
+
+/// `speak devices [--json]`: enumerate input/output devices via the coreaudio
+/// device-enumeration adapter and print their `AudioDeviceID`s (FR-10 / T056).
+fn cmd_devices(args: &DevicesArgs) -> Result<()> {
+    let devices = coreaudio::enumerate()?;
+    if args.json {
+        let items: Vec<serde_json::Value> = devices.iter().map(device_json).collect();
+        println!("{}", serde_json::to_string_pretty(&items)?);
+    } else {
+        println!("Output devices:");
+        print_direction(&devices, false);
+        println!("Input devices:");
+        print_direction(&devices, true);
+    }
+    Ok(())
+}
+
+fn device_json(d: &AudioDevice) -> serde_json::Value {
+    serde_json::json!({
+        "id": d.id.0,
+        "uid": d.uid,
+        "name": d.name,
+        "input_channels": d.input_channels,
+        "output_channels": d.output_channels,
+        "sample_rate": d.sample_rate,
+        "default_input": d.is_default_input,
+        "default_output": d.is_default_output,
+    })
+}
+
+fn print_direction(devices: &[AudioDevice], input: bool) {
+    let mut shown = false;
+    for d in devices.iter().filter(|d| directional(d, input)) {
+        shown = true;
+        println!("{}", device_line(d, input));
+    }
+    if !shown {
+        println!("  (none)");
+    }
+}
+
+/// Whether `d` participates in the requested direction (input vs output).
+fn directional(d: &AudioDevice, input: bool) -> bool {
+    if input { d.is_input() } else { d.is_output() }
+}
+
+fn device_line(d: &AudioDevice, input: bool) -> String {
+    let (default, channels) = if input {
+        (d.is_default_input, d.input_channels)
+    } else {
+        (d.is_default_output, d.output_channels)
+    };
+    let mark = if default { '*' } else { ' ' };
+    format!(
+        "{mark} [{id:>3}] {name:<28} {channels:>2}ch @ {rate:>5} Hz  uid={uid}",
+        id = d.id.0,
+        name = d.name,
+        rate = d.sample_rate,
+        uid = d.uid,
+    )
 }
 
 fn cmd_config(action: ConfigAction, cfg: &Config) -> Result<()> {
@@ -914,5 +986,50 @@ mod tests {
     fn cli_definition_is_valid() {
         // Guards against clap derive misconfiguration (duplicate args, etc.).
         Cli::command().debug_assert();
+    }
+
+    fn sample_device() -> AudioDevice {
+        AudioDevice {
+            id: speak::ports::audio::AudioDeviceId(7),
+            uid: "UID7".into(),
+            name: "Speakers".into(),
+            input_channels: 0,
+            output_channels: 2,
+            sample_rate: 48_000,
+            is_default_input: false,
+            is_default_output: true,
+        }
+    }
+
+    #[test]
+    fn device_line_marks_default_and_shows_id_uid_channels() {
+        let line = device_line(&sample_device(), false);
+        assert!(
+            line.starts_with('*'),
+            "default output should be starred: {line}"
+        );
+        assert!(line.contains("[  7]"), "{line}");
+        assert!(line.contains("uid=UID7"), "{line}");
+        assert!(line.contains("2ch"), "{line}");
+        assert!(line.contains("48000 Hz"), "{line}");
+    }
+
+    #[test]
+    fn device_line_input_uses_input_channels_and_default() {
+        // For the input listing this output-only device is not starred.
+        let line = device_line(&sample_device(), true);
+        assert!(line.starts_with(' '), "{line}");
+        assert!(line.contains(" 0ch"), "{line}");
+    }
+
+    #[test]
+    fn device_json_exposes_fr10_fields() {
+        let v = device_json(&sample_device());
+        assert_eq!(v["id"], 7);
+        assert_eq!(v["uid"], "UID7");
+        assert_eq!(v["output_channels"], 2);
+        assert_eq!(v["sample_rate"], 48_000);
+        assert_eq!(v["default_output"], true);
+        assert_eq!(v["default_input"], false);
     }
 }

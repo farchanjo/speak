@@ -279,8 +279,15 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
 - [ ] T055 `[cli]` wire `speak record` (`--output`, `--device`, `--format
   wav|flac`, `--duration`, `--sample-rate`, `--channels`) to the `record` use
   case (FR-9).
-- [ ] T056 `[cli]` wire `speak devices [--json]` to the device-enumeration
+- [x] T056 `[cli]` wire `speak devices [--json]` to the device-enumeration
   adapter (T035) and print input/output devices + `AudioDeviceID`s (FR-10).
+  (`src/main.rs`: the `Devices` subcommand is a thin CLI adapter (per T047) that
+  reads `coreaudio::enumerate()` directly and prints a starred-default table of
+  output then input devices — `[id] name <channels>ch @ <rate> Hz uid=<UID>` —
+  or, with `--json`, a JSON array carrying id/uid/name/input_channels/
+  output_channels/sample_rate/default_input/default_output. Live-verified against
+  this host (9 devices; SSL 12 starred as both default in + out). The global
+  `--json` flag (FR-16) that will supersede this per-command flag is still T051.)
 
 ## Verification
 

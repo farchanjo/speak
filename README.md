@@ -111,6 +111,7 @@ speak realtime --from en --to pt-BR --speak   # live mic translation, Ctrl-C to 
 
 speak check                            # OS + local hw-accel probe + log path
 speak health                           # pretty-print /health JSON
+speak devices                          # list in/out devices + IDs (--json)
 speak config init|path|show            # manage the config file
 speak completions zsh                  # shell completion script
 speak --help                           # full help; --version for the version
