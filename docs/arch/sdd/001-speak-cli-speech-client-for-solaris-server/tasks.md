@@ -243,7 +243,11 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   `Translator` **Strategy** port are the thin shared seams the CLI and daemon
   both call (the root injects the openai/Whisper vs chat-MT translate strategy).
   Both unit-tested over the port doubles; CLI wiring is T051.)
-- [ ] T042 `[application]` `voices` use case (add/list/rm via `VoiceRepository`).
+- [x] T042 `[application]` `voices` use case (add/list/rm via `VoiceRepository`).
+  (`src/application/voices.rs`: `VoicesUseCase` drives the `VoiceRepository`
+  Repository port (`add`/`list`/`remove`); reading the reference audio file stays
+  a driving-adapter concern (the use case receives the bytes). Unit-tested over
+  the port doubles with an add->list->remove round-trip; CLI wiring is T051.)
 - [ ] T043 `[application]` `record` use case (capture -> WAV/FLAC file).
 - [ ] T044 `[application]` `realtime` use case with the three **Strategy** modes
   (`translate`/`no-translate`/`echo`), SSE or chunked, multi-output.
