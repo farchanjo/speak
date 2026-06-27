@@ -65,6 +65,10 @@ pub struct RealtimeOptions {
     pub chunk_secs: f64,
     /// Capture device (`None` = system default input).
     pub device: Option<AudioDeviceId>,
+    /// Select one 0-based input channel before the mono downmix (`None` keeps the
+    /// downmix of all channels, ADR-0013) — for a mic on one input of a
+    /// multi-channel interface.
+    pub input_channel: Option<u16>,
     /// Playback output devices; empty = default (fan-out when > 1, FR-11).
     pub outputs: Vec<AudioDeviceId>,
     /// Mixer volume.
@@ -166,6 +170,7 @@ where
     /// `Ok(None)` when the VAD gate treats the chunk as silence.
     async fn capture_gated(&self, opts: &RealtimeOptions) -> Result<Option<(PcmBuffer, Vec<u8>)>> {
         let captured = self.audio.capture(opts.device, opts.chunk_secs).await?;
+        let captured = super::pick_input_channel(captured, opts.input_channel)?;
         let mono = self.codec.resample(&captured, ASR_RATE, ASR_CHANNELS)?;
         if opts.vad && rms(&mono) < opts.silence_floor {
             return Ok(None);
@@ -329,6 +334,7 @@ mod tests {
             gen_params: GenParams::new(),
             chunk_secs: 5.0,
             device: None,
+            input_channel: None,
             outputs: Vec::new(),
             volume: 1.0,
             vad: false,

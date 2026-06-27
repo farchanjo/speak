@@ -200,6 +200,7 @@ fn build_options(
         gen_params: gen_to_params(&cfg.tts.gen_params),
         chunk_secs: chunk_secs(cfg, args),
         device: (args.device != 0).then_some(AudioDeviceId(args.device)),
+        input_channel: args.input_channel.or(cfg.audio.input.channel),
         outputs: args
             .output_device
             .iter()

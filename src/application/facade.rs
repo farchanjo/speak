@@ -271,6 +271,7 @@ mod tests {
             format: crate::ports::codec::RecordFormat::Wav,
             sample_rate: None,
             channels: None,
+            input_channel: None,
         };
         let out = facade().record(&opts).await.unwrap();
         assert_eq!(&out.bytes[0..4], b"RIFF");
@@ -290,6 +291,7 @@ mod tests {
             gen_params: GenParams::new(),
             chunk_secs: 5.0,
             device: None,
+            input_channel: None,
             outputs: Vec::new(),
             volume: 1.0,
             vad: false,

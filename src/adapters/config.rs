@@ -170,6 +170,10 @@ pub struct Input {
     pub sample_rate: u32,
     /// Capture channels (advisory).
     pub channels: u16,
+    /// Select one 0-based input channel before the mono downmix (`None` keeps the
+    /// downmix of all channels) — for a mic on one input of a multi-channel
+    /// interface (ADR-0013).
+    pub channel: Option<u16>,
     /// Chunk length seconds.
     pub chunk_secs: f64,
     /// Silence gate threshold in dBFS.
@@ -416,6 +420,7 @@ struct FileInput {
     device: Option<u32>,
     sample_rate: Option<u32>,
     channels: Option<u16>,
+    channel: Option<u16>,
     chunk_secs: Option<f64>,
     silence_threshold_db: Option<f64>,
     vad: Option<bool>,
@@ -939,6 +944,12 @@ impl Resolver {
                 "SPEAK_AUDIO_INPUT_CHANNELS",
                 self.file.audio.input.channels,
                 1,
+            ),
+            channel: self.opt(
+                "audio.input.channel",
+                None,
+                "SPEAK_AUDIO_INPUT_CHANNEL",
+                self.file.audio.input.channel,
             ),
             chunk_secs: self.val(
                 "audio.input.chunk_secs",

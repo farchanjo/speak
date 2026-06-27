@@ -24,6 +24,9 @@ pub struct RecordOptions {
     pub sample_rate: Option<u32>,
     /// Target channel count (`None` keeps the captured channels).
     pub channels: Option<u16>,
+    /// Select one 0-based input channel before conforming (`None` keeps all,
+    /// ADR-0013) — picks a mic on one input of a multi-channel interface.
+    pub input_channel: Option<u16>,
 }
 
 /// The result of a `record` invocation.
@@ -65,6 +68,7 @@ where
     /// Capture, conform, and encode according to `opts`.
     pub async fn execute(&self, opts: &RecordOptions) -> Result<RecordOutcome> {
         let captured = self.source.capture(opts.device, opts.secs).await?;
+        let captured = super::pick_input_channel(captured, opts.input_channel)?;
         let pcm = self.conform(captured, opts)?;
         let bytes = self.encoder.encode(&pcm, opts.format)?;
         Ok(RecordOutcome {
@@ -98,6 +102,7 @@ mod tests {
             format,
             sample_rate: None,
             channels: None,
+            input_channel: None,
         }
     }
 
@@ -114,6 +119,39 @@ mod tests {
         assert_eq!(outcome.frames, 48_000);
         assert!((outcome.secs - 1.0).abs() < 1e-6);
         assert_eq!(outcome.format, RecordFormat::Wav);
+    }
+
+    #[tokio::test]
+    async fn records_selecting_one_input_channel() {
+        // FakeAudio captures 48 kHz stereo; picking channel 0 yields a mono
+        // buffer with the frame count preserved (ADR-0013), no resample needed.
+        let audio = FakeAudio::default();
+        let codec = FakeCodec;
+        let req = RecordOptions {
+            input_channel: Some(0),
+            ..opts(RecordFormat::Wav)
+        };
+        let outcome = RecordUseCase::new(&audio, &codec, &codec)
+            .execute(&req)
+            .await
+            .unwrap();
+        assert_eq!(&outcome.bytes[0..4], b"RIFF");
+        assert_eq!(outcome.frames, 48_000);
+    }
+
+    #[tokio::test]
+    async fn record_rejects_out_of_range_input_channel() {
+        let audio = FakeAudio::default();
+        let codec = FakeCodec;
+        let req = RecordOptions {
+            input_channel: Some(9),
+            ..opts(RecordFormat::Wav)
+        };
+        let err = RecordUseCase::new(&audio, &codec, &codec)
+            .execute(&req)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("out of range"), "{err}");
     }
 
     #[tokio::test]

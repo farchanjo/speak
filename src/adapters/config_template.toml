@@ -57,6 +57,9 @@ play = true                   # play locally by default
 device = 0                    # input device index (0 = system default)
 sample_rate = 16000           # advisory; ASR uploads resample to 16 kHz mono
 channels = 1                  # advisory
+# channel = 0                 # pick ONE 0-based input channel before the mono
+                              # downmix (mic on one input of a multi-channel
+                              # interface, e.g. SSL 12 input 1 = channel 0)
 chunk_secs = 5.0              # realtime capture chunk length
 silence_threshold_db = -38.0  # silence gate threshold (dBFS)
 vad = true                    # enable the silence/VAD gate

@@ -18,7 +18,7 @@ use super::args::RecordArgs;
 /// Run the `record` subcommand.
 pub(crate) async fn run(
     facade: &AppFacade,
-    _cfg: &Config,
+    cfg: &Config,
     args: RecordArgs,
     presenter: &mut dyn Presenter,
 ) -> Result<()> {
@@ -29,6 +29,7 @@ pub(crate) async fn run(
         format,
         sample_rate: args.sample_rate,
         channels: args.channels,
+        input_channel: args.input_channel.or(cfg.audio.input.channel),
     };
     let outcome = facade.record(&opts).await?;
     tokio::fs::write(&args.output, &outcome.bytes)

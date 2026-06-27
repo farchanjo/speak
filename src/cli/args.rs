@@ -266,6 +266,10 @@ pub(crate) struct RealtimeArgs {
         allow_negative_numbers = true
     )]
     pub vad_floor: Option<f64>,
+    /// Capture only this 0-based input channel before the mono downmix — for a
+    /// mic on one input of a multi-channel interface (e.g. SSL 12 input 1 = 0).
+    #[arg(short = 'I', long = "input-channel", value_name = "N")]
+    pub input_channel: Option<u16>,
 }
 
 impl RealtimeArgs {
@@ -304,6 +308,10 @@ pub(crate) struct RecordArgs {
     /// Resample to this channel count; omit to keep the captured channels.
     #[arg(short = 'c', long, value_name = "N")]
     pub channels: Option<u16>,
+    /// Capture only this 0-based input channel before resampling — for a mic on
+    /// one input of a multi-channel interface (e.g. SSL 12 input 1 = 0).
+    #[arg(short = 'I', long = "input-channel", value_name = "N")]
+    pub input_channel: Option<u16>,
 }
 
 /// `record` output containers (maps to the codec port's `RecordFormat`).
@@ -497,6 +505,7 @@ mod tests {
             device: 0,
             no_vad: false,
             vad_floor: None,
+            input_channel: None,
         };
         assert_eq!(make(false, false, false).mode(), RealtimeMode::Translate);
         assert_eq!(make(true, false, false).mode(), RealtimeMode::Translate);
