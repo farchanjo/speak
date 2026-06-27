@@ -137,9 +137,22 @@ where
         }
     }
 
-    /// Capture and process one chunk; `Ok(None)` = silence or empty result.
-    pub async fn step(&self, opts: &RealtimeOptions) -> Result<Option<RealtimeStep>> {
-        let Some((captured, wav)) = self.capture_gated(opts).await? else {
+    /// Process one captured chunk (ADR-0017): gate it, then run the mode arm.
+    /// `Ok(None)` = silence or empty result. Capture is the driving adapter's
+    /// continuous stream; this no longer captures.
+    pub async fn process_chunk(
+        &self,
+        raw: PcmBuffer,
+        opts: &RealtimeOptions,
+    ) -> Result<Option<RealtimeStep>> {
+        let Some((captured, wav)) = super::capture::gate_chunk(
+            self.codec,
+            raw,
+            opts.source.channel(),
+            opts.vad,
+            opts.silence_floor,
+        )?
+        else {
             return Ok(None);
         };
         match opts.mode {
@@ -147,31 +160,6 @@ where
             RealtimeMode::NoTranslate => self.revoice_step(&wav, opts).await,
             RealtimeMode::Echo => self.echo_step(&captured, &wav, opts).await,
         }
-    }
-
-    /// Capture one chunk and encode it to WAV for the SSE endpoint (T036).
-    ///
-    /// `Ok(None)` when the silence gate suppresses the chunk. The server runs the
-    /// ASR -> MT -> TTS pipeline and streams the result back as frames, so this
-    /// path only needs the encoded capture, not local re-voicing.
-    pub async fn capture_chunk(&self, opts: &RealtimeOptions) -> Result<Option<Vec<u8>>> {
-        Ok(self.capture_gated(opts).await?.map(|(_, wav)| wav))
-    }
-
-    /// Capture one chunk via the shared capture-and-gate step (ADR-0015).
-    ///
-    /// Returns the raw capture (for echo playback) alongside the encoded WAV, or
-    /// `Ok(None)` when the VAD gate treats the chunk as silence.
-    async fn capture_gated(&self, opts: &RealtimeOptions) -> Result<Option<(PcmBuffer, Vec<u8>)>> {
-        super::capture::capture_gated(
-            self.audio,
-            self.codec,
-            &opts.source,
-            opts.chunk_secs,
-            opts.vad,
-            opts.silence_floor,
-        )
-        .await
     }
 
     /// Decode and play one SSE realtime frame, or surface its text/terminal state.
@@ -326,6 +314,11 @@ mod tests {
         }
     }
 
+    /// A non-silent captured chunk (0.5 amplitude, 48 kHz stereo).
+    fn raw() -> PcmBuffer {
+        PcmBuffer::new(vec![0.5; 9_600], 48_000, 2)
+    }
+
     #[tokio::test]
     async fn translate_mode_revoices_the_translation() {
         let speech = FakeSpeech {
@@ -335,7 +328,7 @@ mod tests {
         let audio = FakeAudio::default();
         let codec = FakeCodec;
         let step = RealtimeUseCase::new(&speech, &audio, &codec)
-            .step(&opts(RealtimeMode::Translate))
+            .process_chunk(raw(), &opts(RealtimeMode::Translate))
             .await
             .unwrap()
             .unwrap();
@@ -354,7 +347,7 @@ mod tests {
         let audio = FakeAudio::default();
         let codec = FakeCodec;
         let step = RealtimeUseCase::new(&speech, &audio, &codec)
-            .step(&opts(RealtimeMode::NoTranslate))
+            .process_chunk(raw(), &opts(RealtimeMode::NoTranslate))
             .await
             .unwrap()
             .unwrap();
@@ -372,7 +365,7 @@ mod tests {
         let audio = FakeAudio::default();
         let codec = FakeCodec;
         RealtimeUseCase::new(&speech, &audio, &codec)
-            .step(&opts(RealtimeMode::Echo))
+            .process_chunk(raw(), &opts(RealtimeMode::Echo))
             .await
             .unwrap()
             .unwrap();
@@ -384,23 +377,20 @@ mod tests {
     async fn vad_skips_silent_chunks_but_passes_speech() {
         let codec = FakeCodec;
         let speech = FakeSpeech::default();
+        let audio = FakeAudio::default();
         let mut o = opts(RealtimeMode::Translate);
         o.vad = true;
 
-        let silent = FakeAudio {
-            capture_pcm: PcmBuffer::new(vec![0.0; 4_800], 48_000, 2),
-            ..FakeAudio::default()
-        };
-        let skipped = RealtimeUseCase::new(&speech, &silent, &codec)
-            .step(&o)
+        let silent = PcmBuffer::new(vec![0.0; 4_800], 48_000, 2);
+        let skipped = RealtimeUseCase::new(&speech, &audio, &codec)
+            .process_chunk(silent, &o)
             .await
             .unwrap();
         assert!(skipped.is_none(), "silence is gated");
-        assert!(silent.plays.lock().unwrap().is_empty());
+        assert!(audio.plays.lock().unwrap().is_empty());
 
-        let loud = FakeAudio::default(); // 0.5 amplitude
-        let passed = RealtimeUseCase::new(&speech, &loud, &codec)
-            .step(&o)
+        let passed = RealtimeUseCase::new(&speech, &audio, &codec)
+            .process_chunk(raw(), &o)
             .await
             .unwrap();
         assert!(passed.is_some(), "speech passes the gate");
@@ -415,7 +405,7 @@ mod tests {
         let audio = FakeAudio::default();
         let codec = FakeCodec;
         let step = RealtimeUseCase::new(&speech, &audio, &codec)
-            .step(&opts(RealtimeMode::Translate))
+            .process_chunk(raw(), &opts(RealtimeMode::Translate))
             .await
             .unwrap();
         assert!(step.is_none());

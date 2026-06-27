@@ -120,14 +120,18 @@ impl<Speech, Audio, Codec> SpeakFacade<Speech, Audio, Codec> {
             .await
     }
 
-    /// Process one realtime capture chunk (FR-8).
-    pub async fn realtime_step(&self, opts: &RealtimeOptions) -> Result<Option<RealtimeStep>>
+    /// Process one captured realtime chunk locally (chunked path, FR-8 / ADR-0017).
+    pub async fn realtime_process(
+        &self,
+        raw: crate::domain::pcm::PcmBuffer,
+        opts: &RealtimeOptions,
+    ) -> Result<Option<RealtimeStep>>
     where
         Speech: Synthesizer + Transcriber + Translator,
         Audio: AudioSource + AudioSink,
         Codec: AudioDecoder + AudioEncoder,
     {
-        self.realtime().step(opts).await
+        self.realtime().process_chunk(raw, opts).await
     }
 
     /// Process one realtime SSE frame (FR-8).
@@ -144,14 +148,23 @@ impl<Speech, Audio, Codec> SpeakFacade<Speech, Audio, Codec> {
         self.realtime().pump_frame(frame, opts).await
     }
 
-    /// Capture one realtime chunk encoded as WAV for the SSE endpoint (FR-8, T036).
-    pub async fn realtime_capture(&self, opts: &RealtimeOptions) -> Result<Option<Vec<u8>>>
+    /// Encode one captured realtime chunk as WAV for the SSE endpoint, gated by
+    /// VAD; `Ok(None)` when silence (FR-8 / ADR-0017).
+    pub fn realtime_encode(
+        &self,
+        raw: crate::domain::pcm::PcmBuffer,
+        opts: &RealtimeOptions,
+    ) -> Result<Option<Vec<u8>>>
     where
-        Speech: Synthesizer + Transcriber + Translator,
-        Audio: AudioSource + AudioSink,
         Codec: AudioDecoder + AudioEncoder,
     {
-        self.realtime().capture_chunk(opts).await
+        crate::application::capture::encode_chunk(
+            &self.codec,
+            raw,
+            opts.source.channel(),
+            opts.vad,
+            opts.silence_floor,
+        )
     }
 
     /// Drive a realtime SSE stream to completion, invoking `on_event` per frame.
@@ -329,7 +342,8 @@ mod tests {
             vad: false,
             silence_floor: 0.1,
         };
-        assert!(f.realtime_step(&r_opts).await.unwrap().is_some());
+        let raw = crate::domain::pcm::PcmBuffer::new(vec![0.5; 9_600], 48_000, 2);
+        assert!(f.realtime_process(raw, &r_opts).await.unwrap().is_some());
         let frame = RealtimeFrame::Done;
         assert_eq!(
             f.realtime_frame(frame, &r_opts).await.unwrap(),

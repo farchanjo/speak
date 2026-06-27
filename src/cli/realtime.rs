@@ -1,21 +1,25 @@
 //! `realtime` handler (T051): capture the microphone and re-voice it live (FR-8).
 //!
 //! A thin driving adapter: it maps the CLI flags to a [`RealtimeOptions`] value
-//! object, then runs the application [`RealtimeUseCase`] (via the [`AppFacade`])
-//! one chunk per loop iteration until Ctrl-C. The use case owns the
-//! capture -> ASR -> (MT) -> re-voice pipeline and the playback routing; this
-//! handler only resolves options, surfaces each caption through the [`Presenter`],
-//! and sends loop diagnostics to `tracing`. The pipeline mode is the exclusive
+//! object, drives a **continuous** capture stream (ADR-0017) and runs the
+//! application [`RealtimeUseCase`] (via the [`AppFacade`]) once per captured
+//! chunk until Ctrl-C. Capture never pauses while a chunk is processed, so a slow
+//! round trip does not drop audio. The use case owns the ASR -> (MT) -> re-voice
+//! pipeline and the playback routing; this handler resolves options, owns the
+//! capture stream, surfaces each caption through the [`Presenter`], and sends
+//! loop diagnostics to `tracing`. The pipeline mode is the exclusive
 //! `--translate` (default) / `--no-translate` / `--echo` group; the spoken output
 //! voice is `--instruct` (design) or the global `--voice` (clone / standard).
 
 use anyhow::Result;
 
 use speak::adapters::config::Config;
+use speak::adapters::coreaudio::{CoreAudio, NativeCaptureStream};
 use speak::adapters::sse::{RealtimeRequest, SseRealtimeClient};
 use speak::application::{RealtimeEvent, RealtimeOptions, RealtimeStep};
 use speak::domain::audio_format::AudioFormat;
 use speak::domain::language::Language;
+use speak::domain::pcm::PcmBuffer;
 use speak::domain::realtime::RealtimeMode;
 use speak::domain::voice::VoiceMode;
 use speak::ports::audio::AudioDeviceId;
@@ -44,6 +48,13 @@ pub(crate) async fn run(
 ) -> Result<()> {
     let opts = build_options(cfg, globals, &args)?;
     let realtime = facade.supports_realtime().await.unwrap_or(false);
+    // Continuous capture (ADR-0017): one producer feeds chunks; the loop is the
+    // consumer, so a slow round trip never pauses capture (no dropped words).
+    let mut capture = CoreAudio::new().capture_stream(
+        &opts.source,
+        opts.chunk_secs,
+        cfg.audio.capture.buffer_secs,
+    )?;
     tracing::info!(
         mode = opts.mode.as_str(),
         chunk = opts.chunk_secs,
@@ -55,15 +66,16 @@ pub(crate) async fn run(
         "realtime loop starting; Ctrl-C to stop"
     );
     if realtime {
-        run_sse(facade, cfg, sse, &opts, presenter).await
+        run_sse(facade, cfg, sse, &mut capture, &opts, presenter).await
     } else {
-        run_chunked(facade, &opts, presenter).await
+        run_chunked(facade, &mut capture, &opts, presenter).await
     }
 }
 
-/// The chunked fallback: capture -> ASR -> (MT) -> re-voice locally per chunk.
+/// The chunked fallback: consume captured chunks -> ASR -> (MT) -> re-voice.
 async fn run_chunked(
     facade: &AppFacade,
+    capture: &mut NativeCaptureStream,
     opts: &RealtimeOptions,
     presenter: &mut dyn Presenter,
 ) -> Result<()> {
@@ -73,11 +85,17 @@ async fn run_chunked(
                 tracing::info!("realtime loop stopping");
                 return Ok(());
             }
-            res = facade.realtime_step(opts) => match res {
-                Ok(Some(step)) => emit_step(&step, presenter)?,
-                Ok(None) => {}
-                Err(e) => tracing::warn!("realtime chunk failed: {e:#}"),
-            },
+            chunk = capture.recv() => {
+                let Some(raw) = chunk else {
+                    tracing::warn!("capture stream ended");
+                    return Ok(());
+                };
+                match facade.realtime_process(raw, opts).await {
+                    Ok(Some(step)) => emit_step(&step, presenter)?,
+                    Ok(None) => {}
+                    Err(e) => tracing::warn!("realtime chunk failed: {e:#}"),
+                }
+            }
         }
     }
 }
@@ -87,6 +105,7 @@ async fn run_sse(
     facade: &AppFacade,
     cfg: &Config,
     sse: &SseRealtimeClient,
+    capture: &mut NativeCaptureStream,
     opts: &RealtimeOptions,
     presenter: &mut dyn Presenter,
 ) -> Result<()> {
@@ -96,8 +115,12 @@ async fn run_sse(
                 tracing::info!("realtime loop stopping");
                 return Ok(());
             }
-            res = drive_chunk(facade, cfg, sse, opts, presenter) => {
-                if let Err(e) = res {
+            chunk = capture.recv() => {
+                let Some(raw) = chunk else {
+                    tracing::warn!("capture stream ended");
+                    return Ok(());
+                };
+                if let Err(e) = drive_chunk(facade, cfg, sse, opts, raw, presenter).await {
                     tracing::warn!("realtime SSE chunk failed: {e:#}");
                 }
             }
@@ -105,15 +128,16 @@ async fn run_sse(
     }
 }
 
-/// Capture one chunk, stream it through the SSE endpoint, and surface the frames.
+/// Encode one captured chunk, stream it through the SSE endpoint, play the frames.
 async fn drive_chunk(
     facade: &AppFacade,
     cfg: &Config,
     sse: &SseRealtimeClient,
     opts: &RealtimeOptions,
+    raw: PcmBuffer,
     presenter: &mut dyn Presenter,
 ) -> Result<()> {
-    let Some(wav) = facade.realtime_capture(opts).await? else {
+    let Some(wav) = facade.realtime_encode(raw, opts)? else {
         return Ok(());
     };
     let request = realtime_request(wav, opts);
