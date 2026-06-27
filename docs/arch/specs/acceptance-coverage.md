@@ -125,12 +125,22 @@ on-device verification) and its scenarios are pending until then.
 | The capture source is reported with its config origin | UNIT | `adapters/config.rs::resolver_records_toml_origin_for_capture_source`; `entries_catalog_covers_every_tunable_knob` (key `audio.capture.source`) |
 | `--source` shared by realtime + record (Phase 1b) | UNIT | `cli/args.rs::cli_definition_is_valid` (flag wiring); `application/record.rs::records_*` (CaptureSource-based capture); `application/realtime.rs` (capture via shared `capture::capture_gated`) |
 
-Pending (Phase 2, native tap — on-device): "Stream a transcript of the system
-output via the native tap", "Output capture fails clearly when permission is
-denied", "Record the system output to a file", "Realtime translation of the
-system output". These require the native Core Audio output tap (T011-T013) and
-are validated on real hardware with capture permission; until then `--source
-output` returns the actionable BlackHole hint.
+### Phase 2 — native output tap (on-device, ADR-0015/0016)
+
+These four exercise the native Core Audio tap and so are verified ON-DEVICE
+(macOS 14.4+, signed `make app`/`make install` binary, one-time audio-capture
+grant) rather than in `cargo nextest`. Evidence is recorded in
+`docs/arch/sdd/002-…/research.md` (the on-device validation log).
+
+| Scenario | Class | Evidence |
+|---|---|---|
+| Record the system output to a file | ON-DEVICE | `record -s output` captured a 440 Hz tone at mean −24/−27/−35 dBFS across the IOProc + grant + disclaim iterations; `adapters/coreaudio/macos/tap.rs::capture_output` |
+| Stream a transcript of the system output via the native tap | ON-DEVICE | same capture path feeds `transcribe --stream` (Phase-1 SSE drive already bound); `cli/mod.rs::wants_output_capture` + the disclaim re-exec route it |
+| Output capture fails clearly when permission is denied | ON-DEVICE + UNIT | all-zero (no-grant) capture emits the actionable `tracing` warning in `tap.rs::capture_via_ioproc`; non-macOS/unsupported → the BlackHole-fallback error (`coreaudio/stub.rs`, port default) |
+| Realtime translation of the system output | ON-DEVICE | shares the same `CaptureSource::Output` capture path as record/transcribe; `realtime --source output` resolves via `cli::capture_source` |
+
+Seamless direct-exec confirmed: the bare signed binary + the ADR-0016 disclaim
+re-exec captured the tone at −35.4 dBFS with no `open` and no terminal grant.
 
 ## Running the coverage
 

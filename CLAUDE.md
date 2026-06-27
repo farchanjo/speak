@@ -80,8 +80,9 @@ ffmpeg/afplay/ffplay.
 |------|---------|
 | Debug build | `make build` |
 | Release build | `make build-release` → `target/release/speak` (lto, strip); `bin/speak` symlinks it |
-| Install | `make install` (build-release + **Apple codesign** + symlink) — macOS-guarded, no-ops off-mac |
-| Codesign | `make sign` — signs `$SIGN_BIN` (default the release bin). Auto-detects the first keychain identity, ad-hoc (`-`) fallback. Override: `CODESIGN_IDENTITY="Developer ID Application: … (TEAMID)" CODESIGN_OPTS="--options runtime --timestamp"` |
+| Install | `make install` (build-release + **Apple codesign w/ audio-input entitlement** + symlink) — macOS-guarded, no-ops off-mac. With a real identity the installed `bin/speak` is a TCC subject, so `--source output` works (ADR-0015/0016); `make app` builds the same as a `.app`. |
+| Codesign | `make sign` — signs `$SIGN_BIN` (default the release bin); with a **real identity** also applies `$ENTITLEMENTS` (`packaging/macos/speak.entitlements`, `com.apple.security.device.audio-input`) for the host-output tap. Auto-detects the first keychain identity, ad-hoc (`-`) fallback (no entitlement). Override: `CODESIGN_IDENTITY="… (TEAMID)" CODESIGN_OPTS="--options runtime --timestamp"` |
+| App bundle | `make app` → signed `target/speak.app` (embedded Info.plist + entitlement) for the audio-capture grant (ADR-0016) |
 | Lint | `make lint` (verbose clippy + fmt check) · `make fmt-fix` to apply · `make clippy-fix` to auto-apply suggestions |
 | Lint (verbose) | `make clippy` — `all`+rustc groups **deny**, `pedantic`/`nursery`/`cargo` **warn** (config in `Cargo.toml [lints]`; tokio-noisy lints allowed there) |
 | Lint (strict) | `make clippy-strict` — promotes every warn to a hard error (cleanup sessions only) |
