@@ -30,6 +30,9 @@ UNAME_S           := $(shell uname -s)
 CODESIGN_IDENTITY ?=
 CODESIGN_OPTS     ?=
 SIGN_BIN          ?= $(BIN)
+# Audio-input entitlement for the host-output tap (ADR-0015/0016); applied only
+# with a real signing identity (TCC ignores ad-hoc signatures).
+ENTITLEMENTS      ?= packaging/macos/speak.entitlements
 
 .DEFAULT_GOAL := help
 .PHONY: help build build-release build-dbg run install link sign app \
@@ -75,7 +78,12 @@ sign: ## Apple code-sign $(SIGN_BIN) (macOS only; auto-detects identity, ad-hoc 
 		else \
 			echo "🔏 codesign [$$id] $(SIGN_BIN)"; \
 		fi; \
-		codesign --force --sign "$$id" $(CODESIGN_OPTS) "$(SIGN_BIN)" || exit 1; \
+		ent=""; \
+			if [ "$$id" != "-" ] && [ -f "$(ENTITLEMENTS)" ]; then \
+				ent="--entitlements $(ENTITLEMENTS)"; \
+				echo "   + entitlement $(ENTITLEMENTS) (host-output tap)"; \
+			fi; \
+			codesign --force --sign "$$id" $$ent $(CODESIGN_OPTS) "$(SIGN_BIN)" || exit 1; \
 		codesign --verify --strict --verbose=2 "$(SIGN_BIN)" || exit 1; \
 		echo "✅ signed + verified"; \
 		codesign --display --verbose=2 "$(SIGN_BIN)" 2>&1 \
