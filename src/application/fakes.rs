@@ -19,6 +19,7 @@ use crate::domain::voice::Voice;
 use crate::ports::audio::{AudioDevice, AudioDeviceId, AudioSink, AudioSource};
 use crate::ports::codec::{AudioDecoder, AudioEncoder, RecordFormat};
 use crate::ports::probe::ServerProbe;
+use crate::ports::realtime::{RealtimeFrame, RealtimeStream};
 use crate::ports::synthesizer::{SynthesizedAudio, Synthesizer};
 use crate::ports::transcriber::{TranscribeRequest, Transcriber};
 use crate::ports::translator::Translator;
@@ -220,5 +221,27 @@ impl AudioSource for FakeAudio {
 
     fn inputs(&self) -> Result<Vec<AudioDevice>> {
         Ok(self.inputs.clone())
+    }
+}
+
+/// A scripted [`RealtimeStream`] double: yields a fixed frame sequence in order,
+/// then ends with `None`. Lets the realtime SSE drive loop be exercised with no
+/// network (mirrors the `sse` adapter the composition root injects in prod).
+pub(crate) struct FakeStream {
+    frames: Mutex<std::collections::VecDeque<RealtimeFrame>>,
+}
+
+impl FakeStream {
+    /// Build a stream that yields `frames` in order, then `None`.
+    pub(crate) fn new(frames: Vec<RealtimeFrame>) -> Self {
+        Self {
+            frames: Mutex::new(frames.into()),
+        }
+    }
+}
+
+impl RealtimeStream for FakeStream {
+    async fn recv(&mut self) -> Result<Option<RealtimeFrame>> {
+        Ok(self.frames.lock().unwrap().pop_front())
     }
 }

@@ -455,4 +455,82 @@ mod tests {
             RealtimeEvent::Done
         );
     }
+
+    #[tokio::test]
+    async fn drive_stream_pumps_each_frame_and_stops_on_done() {
+        use crate::application::fakes::FakeStream;
+
+        let speech = FakeSpeech::default();
+        let audio = FakeAudio::default();
+        let codec = FakeCodec;
+        let uc = RealtimeUseCase::new(&speech, &audio, &codec);
+        let o = opts(RealtimeMode::Translate);
+        // Transcript -> Translation -> Audio -> Done; the frame after Done must be
+        // unreachable because the loop breaks on the terminal frame.
+        let mut stream = FakeStream::new(vec![
+            RealtimeFrame::Transcript { text: "uno".into() },
+            RealtimeFrame::Translation { text: "one".into() },
+            RealtimeFrame::Audio {
+                data: b"AUDIO".to_vec(),
+                format: Some("mp3".into()),
+                seq: Some(1),
+            },
+            RealtimeFrame::Done,
+            RealtimeFrame::Translation {
+                text: "unreached".into(),
+            },
+        ]);
+
+        let mut events = Vec::new();
+        uc.drive_stream(&mut stream, &o, |e| events.push(e.clone()))
+            .await
+            .unwrap();
+
+        assert_eq!(events.len(), 4, "stops on Done, never pumps the 5th frame");
+        assert_eq!(
+            events[0],
+            RealtimeEvent::Text {
+                kind: FrameKind::Transcript,
+                text: "uno".into()
+            }
+        );
+        assert_eq!(events[1], text_event(FrameKind::Translation, "one".into()));
+        assert_eq!(events[2], RealtimeEvent::Played);
+        assert_eq!(events[3], RealtimeEvent::Done);
+        assert_eq!(
+            audio.plays.lock().unwrap().len(),
+            1,
+            "exactly one decoded audio chunk played"
+        );
+    }
+
+    #[tokio::test]
+    async fn drive_stream_stops_on_a_server_error_frame() {
+        use crate::application::fakes::FakeStream;
+
+        let speech = FakeSpeech::default();
+        let audio = FakeAudio::default();
+        let codec = FakeCodec;
+        let uc = RealtimeUseCase::new(&speech, &audio, &codec);
+        let o = opts(RealtimeMode::Translate);
+        let mut stream = FakeStream::new(vec![
+            RealtimeFrame::Error {
+                message: "boom".into(),
+            },
+            RealtimeFrame::Done,
+        ]);
+
+        let mut events = Vec::new();
+        uc.drive_stream(&mut stream, &o, |e| events.push(e.clone()))
+            .await
+            .unwrap();
+
+        assert_eq!(events.len(), 1, "a Failed frame is terminal");
+        assert_eq!(
+            events[0],
+            RealtimeEvent::Failed {
+                message: "boom".into()
+            }
+        );
+    }
 }
