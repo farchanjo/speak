@@ -95,7 +95,7 @@ pub struct SseRealtimeClient {
 impl SseRealtimeClient {
     /// Build the client from resolved configuration (Factory).
     pub fn new(cfg: &Config) -> Result<Self> {
-        let http = crate::client::build_http_client(&cfg.server)?;
+        let http = crate::adapters::http::build_http_client(&cfg.server)?;
         let base = cfg.server.host.trim_end_matches('/');
         Ok(Self {
             http,

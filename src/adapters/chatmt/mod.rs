@@ -46,7 +46,7 @@ impl<T> ChatMtTranslator<T> {
         let Some(base) = cfg.http.translate_url.clone() else {
             return Ok(None);
         };
-        let http = crate::client::build_http_client(&cfg.server)?;
+        let http = crate::adapters::http::build_http_client(&cfg.server)?;
         let model = cfg
             .http
             .translate_model

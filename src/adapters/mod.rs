@@ -9,6 +9,7 @@
 pub mod chatmt;
 pub mod coreaudio;
 pub mod headless;
+pub mod http;
 pub mod libav;
 pub mod openai;
 pub mod presenter;

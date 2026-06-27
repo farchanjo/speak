@@ -3,7 +3,9 @@
 //! The single tuned, warm keep-alive [`reqwest::Client`] every network adapter
 //! reuses. The `openai` adapter ([`crate::adapters::openai`]) builds its pool
 //! here and the daemon's warm Facade rides that same pool; the request/response
-//! shaping and retry now live in the adapters + `application` layers, not here.
+//! shaping and retry live in the sibling adapters + the `application` layer, not
+//! here. This module is the shared driven-adapter HTTP seam (ADR-0004) — the
+//! `reqwest` framework dependency stays confined to `src/adapters`.
 
 use std::time::Duration;
 

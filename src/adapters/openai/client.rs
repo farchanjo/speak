@@ -12,7 +12,7 @@ use crate::config::Config;
 /// `Synthesizer`, `Transcriber`, `Translator`, and `VoiceRepository` ports.
 ///
 /// Construction is the **Factory** step. It builds one tuned keep-alive
-/// `reqwest` pool ([`crate::client::build_http_client`]) for the raw
+/// `reqwest` pool ([`crate::adapters::http::build_http_client`]) for the raw
 /// extended-speech / `/tts` / voice-CRUD calls the typed API cannot express,
 /// and lets `async-openai` build its own client for the typed transcription /
 /// translation calls. (`async-openai` 0.41 links a different `reqwest` major
@@ -38,7 +38,7 @@ pub struct OpenAiAdapter {
 impl OpenAiAdapter {
     /// Build the adapter from resolved configuration (Factory).
     pub fn new(cfg: &Config) -> Result<Self> {
-        let http = crate::client::build_http_client(&cfg.server)?;
+        let http = crate::adapters::http::build_http_client(&cfg.server)?;
         let base = cfg.server.host.trim_end_matches('/').to_owned();
         let config = OpenAIConfig::default()
             .with_api_base(format!("{base}/v1"))
