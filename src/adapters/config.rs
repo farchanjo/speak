@@ -193,6 +193,9 @@ pub struct Capture {
     pub device: Option<u32>,
     /// Single 0-based capture channel for the output source (`None` = downmix).
     pub channel: Option<u16>,
+    /// Backlog ceiling (seconds) for the continuous streaming-capture ring
+    /// before it drops the oldest audio (ADR-0017 hybrid backpressure).
+    pub buffer_secs: f64,
 }
 
 impl Capture {
@@ -456,6 +459,7 @@ struct FileCapture {
     source: Option<String>,
     device: Option<u32>,
     channel: Option<u16>,
+    buffer_secs: Option<f64>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -934,6 +938,13 @@ impl Resolver {
                 None,
                 "SPEAK_AUDIO_CAPTURE_CHANNEL",
                 self.file.audio.capture.channel,
+            ),
+            buffer_secs: self.val(
+                "audio.capture.buffer_secs",
+                None,
+                "SPEAK_AUDIO_CAPTURE_BUFFER_SECS",
+                self.file.audio.capture.buffer_secs,
+                60.0,
             ),
         }
     }

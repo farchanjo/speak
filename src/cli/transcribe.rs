@@ -9,9 +9,11 @@
 use anyhow::{Context, Result, bail};
 
 use speak::adapters::config::Config;
+use speak::adapters::coreaudio::CoreAudio;
 use speak::adapters::sse::{RealtimeRequest, SseRealtimeClient};
 use speak::application::{StreamTranscribeOptions, TranscribeStreamEnd};
 use speak::domain::language::Language;
+use speak::domain::pcm::PcmBuffer;
 use speak::ports::presenter::Presenter;
 use speak::ports::transcriber::TranscribeRequest;
 
@@ -49,6 +51,11 @@ pub(crate) async fn run(
 }
 
 /// Run `transcribe --stream`: capture live audio and print a live transcript.
+///
+/// Capture runs **continuously** on a background producer (ADR-0017) feeding a
+/// bounded channel; this loop is the consumer — it encodes each chunk and POSTs
+/// it, while the producer keeps capturing the next chunks into the queue, so a
+/// slow round trip never drops audio.
 pub(crate) async fn run_stream(
     facade: &AppFacade,
     cfg: &Config,
@@ -57,10 +64,15 @@ pub(crate) async fn run_stream(
     presenter: &mut dyn Presenter,
 ) -> Result<()> {
     let opts = build_options(cfg, &args);
+    let mut capture = CoreAudio::new().capture_stream(
+        &opts.source,
+        opts.chunk_secs,
+        cfg.audio.capture.buffer_secs,
+    )?;
     tracing::info!(
         source = opts.source.direction().as_str(),
         chunk = opts.chunk_secs,
-        device = args.device,
+        buffer = cfg.audio.capture.buffer_secs,
         "stream transcribe starting; Ctrl-C to stop"
     );
     loop {
@@ -69,8 +81,12 @@ pub(crate) async fn run_stream(
                 tracing::info!("stream transcribe stopping");
                 return Ok(());
             }
-            res = drive_chunk(facade, cfg, &args, sse, &opts, presenter) => {
-                if let Err(e) = res {
+            chunk = capture.recv() => {
+                let Some(raw) = chunk else {
+                    tracing::warn!("capture stream ended");
+                    return Ok(());
+                };
+                if let Err(e) = process_chunk(facade, cfg, &args, sse, &opts, raw, presenter).await {
                     tracing::warn!("stream transcribe chunk failed: {e:#}");
                 }
             }
@@ -78,16 +94,17 @@ pub(crate) async fn run_stream(
     }
 }
 
-/// Capture one chunk, stream it transcript-only, and surface each transcript.
-async fn drive_chunk(
+/// Encode one captured chunk, stream it transcript-only, surface each transcript.
+async fn process_chunk(
     facade: &AppFacade,
     cfg: &Config,
     args: &TranscribeArgs,
     sse: &SseRealtimeClient,
     opts: &StreamTranscribeOptions,
+    raw: PcmBuffer,
     presenter: &mut dyn Presenter,
 ) -> Result<()> {
-    let Some(wav) = facade.stream_transcribe_capture(opts).await? else {
+    let Some(wav) = facade.stream_transcribe_encode(raw, opts)? else {
         return Ok(());
     };
     let request = stream_request(wav, cfg, args);

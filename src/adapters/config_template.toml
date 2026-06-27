@@ -72,6 +72,7 @@ source = "input"              # "input" (mic/line-in) or "output" (host/sound-ca
                               # The --source flag overrides this.
 # device = 0                  # output AudioDeviceID to tap when source = "output" (default = system mix)
 # channel = 0                 # pick ONE 0-based channel of the tapped output
+buffer_secs = 60.0            # streaming-capture backlog ceiling before drop-oldest (ADR-0017)
 
 [ffmpeg]
 threads = 0                   # decoder threads (0 = all local cores)

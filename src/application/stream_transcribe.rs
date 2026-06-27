@@ -1,18 +1,19 @@
-//! `transcribe --stream` use case (ADR-0014): live transcript-only streaming.
+//! `transcribe --stream` use case (ADR-0014 / ADR-0017): transcript-only drive.
 //!
 //! The ASR-only sibling of [`RealtimeUseCase`](super::realtime::RealtimeUseCase).
-//! It captures one chunk from the shared [`CaptureSource`] step and drives the
-//! [`RealtimeStream`] port **transcript-only**: `transcript` frames become text
-//! events; `audio` and `translation` frames are ignored **without decoding or
-//! playing** (the key difference from the re-voicing realtime pipeline); `done`
-//! ends the chunk and `error` is surfaced. It depends on no `Synthesizer`,
-//! `Translator`, or `AudioSink` — keeping the surface minimal (ADR-0003).
+//! Capture is decoupled (a continuous native stream owned by the driving
+//! adapter, ADR-0017); this use case keeps the **pure** steps: encode one
+//! captured chunk for the SSE endpoint, and drive the [`RealtimeStream`] port
+//! **transcript-only** — `transcript` frames become text events; `audio` and
+//! `translation` frames are ignored **without decoding or playing** (the key
+//! difference from the re-voicing realtime pipeline); `done` ends the chunk and
+//! `error` is surfaced.
 
 use anyhow::Result;
 
-use crate::application::capture::capture_gated_wav;
+use crate::application::capture::encode_chunk;
 use crate::domain::capture_source::CaptureSource;
-use crate::ports::audio::AudioSource;
+use crate::domain::pcm::PcmBuffer;
 use crate::ports::codec::{AudioDecoder, AudioEncoder};
 use crate::ports::realtime::{RealtimeFrame, RealtimeStream};
 
@@ -43,34 +44,34 @@ pub enum TranscribeStreamEnd {
     },
 }
 
-/// The streaming-transcribe use case over the audio + codec port roles.
-pub struct StreamTranscribeUseCase<'a, Audio, Codec> {
-    audio: &'a Audio,
+/// The streaming-transcribe use case over the codec port role.
+pub struct StreamTranscribeUseCase<'a, Codec> {
     codec: &'a Codec,
 }
 
-impl<'a, Audio, Codec> StreamTranscribeUseCase<'a, Audio, Codec>
+impl<'a, Codec> StreamTranscribeUseCase<'a, Codec>
 where
-    Audio: AudioSource,
     Codec: AudioDecoder + AudioEncoder,
 {
-    /// Wire the use case to its port roles.
+    /// Wire the use case to its codec role.
     #[must_use]
-    pub fn new(audio: &'a Audio, codec: &'a Codec) -> Self {
-        Self { audio, codec }
+    pub fn new(codec: &'a Codec) -> Self {
+        Self { codec }
     }
 
-    /// Capture one chunk encoded as WAV, or `Ok(None)` when gated as silence.
-    pub async fn capture(&self, opts: &StreamTranscribeOptions) -> Result<Option<Vec<u8>>> {
-        capture_gated_wav(
-            self.audio,
+    /// Encode one captured chunk to WAV, or `Ok(None)` when gated as silence.
+    pub fn encode(
+        &self,
+        raw: PcmBuffer,
+        opts: &StreamTranscribeOptions,
+    ) -> Result<Option<Vec<u8>>> {
+        encode_chunk(
             self.codec,
-            &opts.source,
-            opts.chunk_secs,
+            raw,
+            opts.source.channel(),
             opts.vad,
             opts.silence_floor,
         )
-        .await
     }
 
     /// Drive an SSE stream transcript-only: surface `transcript` text, ignore
@@ -103,7 +104,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::application::fakes::{FakeAudio, FakeCodec, FakeStream};
+    use crate::application::fakes::{FakeCodec, FakeStream};
 
     fn opts() -> StreamTranscribeOptions {
         StreamTranscribeOptions {
@@ -114,13 +115,12 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn capture_returns_wav_for_a_live_chunk() {
-        let audio = FakeAudio::default();
+    #[test]
+    fn encode_returns_wav_for_a_captured_chunk() {
         let codec = FakeCodec;
-        let wav = StreamTranscribeUseCase::new(&audio, &codec)
-            .capture(&opts())
-            .await
+        let raw = PcmBuffer::new(vec![0.5; 9_600], 48_000, 2);
+        let wav = StreamTranscribeUseCase::new(&codec)
+            .encode(raw, &opts())
             .unwrap()
             .unwrap();
         assert_eq!(&wav[0..4], b"RIFF");
@@ -128,9 +128,8 @@ mod tests {
 
     #[tokio::test]
     async fn drive_surfaces_transcripts_and_ignores_audio_and_translation() {
-        let audio = FakeAudio::default();
         let codec = FakeCodec;
-        let uc = StreamTranscribeUseCase::new(&audio, &codec);
+        let uc = StreamTranscribeUseCase::new(&codec);
         let mut stream = FakeStream::new(vec![
             RealtimeFrame::Transcript {
                 text: "bom dia".into(),
@@ -160,16 +159,12 @@ mod tests {
 
         assert_eq!(end, TranscribeStreamEnd::Done);
         assert_eq!(lines, vec!["bom dia".to_owned(), "tudo bem".to_owned()]);
-        // No AudioSink is wired: audio frames cannot be played by construction,
-        // and the translation frame is dropped from a transcript-only stream.
-        assert!(audio.plays.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
     async fn drive_reports_a_server_error_frame() {
-        let audio = FakeAudio::default();
         let codec = FakeCodec;
-        let uc = StreamTranscribeUseCase::new(&audio, &codec);
+        let uc = StreamTranscribeUseCase::new(&codec);
         let mut stream = FakeStream::new(vec![
             RealtimeFrame::Error {
                 message: "backend down".into(),
@@ -193,9 +188,8 @@ mod tests {
 
     #[tokio::test]
     async fn drive_completes_on_natural_exhaustion() {
-        let audio = FakeAudio::default();
         let codec = FakeCodec;
-        let uc = StreamTranscribeUseCase::new(&audio, &codec);
+        let uc = StreamTranscribeUseCase::new(&codec);
         let mut stream = FakeStream::new(vec![RealtimeFrame::Transcript { text: "hi".into() }]);
         let mut lines = Vec::new();
         let end = uc

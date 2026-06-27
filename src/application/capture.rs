@@ -46,24 +46,26 @@ where
     Ok(Some((captured, wav)))
 }
 
-/// Like [`capture_gated`] but yielding only the WAV bytes (no raw capture).
-pub(crate) async fn capture_gated_wav<A, C>(
-    audio: &A,
+/// Encode one already-captured chunk for the SSE endpoint (ADR-0017): pick a
+/// single channel (ADR-0013), resample to mono 16 kHz, VAD-gate, and mux WAV.
+/// `Ok(None)` when the chunk is gated as silence. Used by the continuous
+/// streaming pipeline, where capture is decoupled from this encode step.
+pub(crate) fn encode_chunk<C>(
     codec: &C,
-    source: &CaptureSource,
-    chunk_secs: f64,
+    raw: PcmBuffer,
+    channel: Option<u16>,
     vad: bool,
     silence_floor: f64,
 ) -> Result<Option<Vec<u8>>>
 where
-    A: AudioSource,
     C: AudioDecoder + AudioEncoder,
 {
-    Ok(
-        capture_gated(audio, codec, source, chunk_secs, vad, silence_floor)
-            .await?
-            .map(|(_, wav)| wav),
-    )
+    let picked = super::pick_input_channel(raw, channel)?;
+    let mono = codec.resample(&picked, ASR_RATE, ASR_CHANNELS)?;
+    if vad && rms(&mono) < silence_floor {
+        return Ok(None);
+    }
+    Ok(Some(codec.encode(&mono, RecordFormat::Wav)?))
 }
 
 /// Linear RMS amplitude of an interleaved float buffer (silence-gate input).
@@ -82,28 +84,32 @@ mod tests {
     use crate::application::fakes::{FakeAudio, FakeCodec};
 
     #[tokio::test]
-    async fn input_source_captures_and_encodes_wav() {
+    async fn capture_gated_input_yields_raw_and_wav() {
         let audio = FakeAudio::default();
         let codec = FakeCodec;
         let src = CaptureSource::input(None, None);
-        let wav = capture_gated_wav(&audio, &codec, &src, 1.0, false, 0.1)
+        let (_, wav) = capture_gated(&audio, &codec, &src, 1.0, false, 0.1)
             .await
             .unwrap()
             .expect("speech passes when the gate is off");
         assert_eq!(&wav[0..4], b"RIFF");
     }
 
-    #[tokio::test]
-    async fn silent_chunk_is_gated_out() {
-        let audio = FakeAudio {
-            capture_pcm: PcmBuffer::new(vec![0.0; 4_800], 48_000, 2),
-            ..FakeAudio::default()
-        };
+    #[test]
+    fn encode_chunk_encodes_a_captured_buffer() {
         let codec = FakeCodec;
-        let src = CaptureSource::input(None, None);
-        let gated = capture_gated_wav(&audio, &codec, &src, 1.0, true, 0.1)
-            .await
-            .unwrap();
+        let raw = PcmBuffer::new(vec![0.5; 9_600], 48_000, 2);
+        let wav = encode_chunk(&codec, raw, None, false, 0.1)
+            .unwrap()
+            .expect("speech passes when the gate is off");
+        assert_eq!(&wav[0..4], b"RIFF");
+    }
+
+    #[test]
+    fn encode_chunk_gates_silence() {
+        let codec = FakeCodec;
+        let raw = PcmBuffer::new(vec![0.0; 9_600], 48_000, 2);
+        let gated = encode_chunk(&codec, raw, None, true, 0.1).unwrap();
         assert!(gated.is_none(), "silence is gated");
     }
 
@@ -112,7 +118,7 @@ mod tests {
         let audio = FakeAudio::default();
         let codec = FakeCodec;
         let src = CaptureSource::output(None, None);
-        let err = capture_gated_wav(&audio, &codec, &src, 1.0, false, 0.1)
+        let err = capture_gated(&audio, &codec, &src, 1.0, false, 0.1)
             .await
             .unwrap_err();
         assert!(err.to_string().contains("BlackHole"), "{err}");

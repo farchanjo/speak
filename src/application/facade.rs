@@ -171,18 +171,18 @@ impl<Speech, Audio, Codec> SpeakFacade<Speech, Audio, Codec> {
         self.realtime().drive_stream(stream, opts, on_event).await
     }
 
-    /// Capture one streaming-transcribe chunk as WAV, gated by VAD (ADR-0014).
-    pub async fn stream_transcribe_capture(
+    /// Encode one captured streaming-transcribe chunk to WAV, gated by VAD;
+    /// `Ok(None)` when silence (ADR-0014 / ADR-0017). Capture is the driving
+    /// adapter's continuous stream.
+    pub fn stream_transcribe_encode(
         &self,
+        raw: crate::domain::pcm::PcmBuffer,
         opts: &StreamTranscribeOptions,
     ) -> Result<Option<Vec<u8>>>
     where
-        Audio: AudioSource,
         Codec: AudioDecoder + AudioEncoder,
     {
-        StreamTranscribeUseCase::new(&self.audio, &self.codec)
-            .capture(opts)
-            .await
+        StreamTranscribeUseCase::new(&self.codec).encode(raw, opts)
     }
 
     /// Drive a transcript-only SSE stream, invoking `on_transcript` per frame
@@ -195,10 +195,9 @@ impl<Speech, Audio, Codec> SpeakFacade<Speech, Audio, Codec> {
     where
         St: RealtimeStream,
         F: FnMut(&str),
-        Audio: AudioSource,
         Codec: AudioDecoder + AudioEncoder,
     {
-        StreamTranscribeUseCase::new(&self.audio, &self.codec)
+        StreamTranscribeUseCase::new(&self.codec)
             .drive(stream, on_transcript)
             .await
     }
