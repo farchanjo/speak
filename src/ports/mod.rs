@@ -11,6 +11,7 @@
 pub mod audio;
 pub mod codec;
 pub mod config;
+pub mod presenter;
 pub mod probe;
 pub mod realtime;
 pub mod retry;
@@ -22,6 +23,7 @@ pub mod voice;
 pub use audio::{AudioDevice, AudioDeviceId, AudioSink, AudioSource};
 pub use codec::{AudioDecoder, AudioEncoder, RecordFormat};
 pub use config::ConfigProvider;
+pub use presenter::{Presenter, Report, Table};
 pub use probe::ServerProbe;
 pub use realtime::{RealtimeFrame, RealtimeStream};
 pub use retry::RetryPolicy;

@@ -104,8 +104,9 @@ flowchart TD
   `AudioSink`, `AudioSource`, `AudioDecoder`, `AudioEncoder` (WAV/FLAC record
   output), `ConfigProvider`, `VoiceRepository`, `RealtimeStream`, `ServerProbe`
   (the capability/health port for `GET /health`, `GET /v1/models`, and the
-  runtime `POST /v1/realtime/translate` probe of FR-14), and `RetryPolicy` (the
-  resilience Strategy the retry decorators consult) traits.
+  runtime `POST /v1/realtime/translate` probe of FR-14), `RetryPolicy` (the
+  resilience Strategy the retry decorators consult), and `Presenter` (the output
+  port carrying structured `Report`/`Table`/`line` results, ADR-0009) traits.
 - **application** (`src/application/`) — use cases `say`, `transcribe`,
   `translate`, `record`, `voices`, `realtime`, `check`/`health`; orchestrate
   ports; no framework types leak across the boundary. The `check`/`health` use
@@ -148,15 +149,22 @@ flowchart TD
     pass-through) reusing the same use cases (ADR-0005).
   - `sse` — `eventsource-stream` parser decoding realtime frames into a typed
     `RealtimeFrame`; implements `RealtimeStream` (ADR-0004).
+  - `presenter` — `console` (coloured, aligned human text; honours `--quiet` and
+    `--color`/`NO_COLOR`) and `json` (machine-readable per FR-16) renderers plus
+    a capture buffer for tests; implements the `Presenter` output port (ADR-0009).
 - **cli** (`src/cli/`) — clap driving adapter; maps args to use-case inputs;
-  zero business logic.
+  emits results through the `Presenter` port (never raw `println!`); zero
+  business logic.
 - **composition root** (`src/main.rs`) — **Factory** wires adapters into use
   cases (DI) and builds the one warm client.
 
 ### Cross-cutting (retained from current code)
 
 - `accel` (probe / `speak check`) and `logging` (rotating `~/.speak/logs`) are
-  cross-cutting concerns invoked by the composition root (ADR-0002).
+  cross-cutting concerns invoked by the composition root (ADR-0002). Per ADR-0009,
+  command RESULTS go to stdout through the `Presenter` port while DIAGNOSTICS go
+  to stderr (verbosity-gated) and the rotating log via `tracing` — the two
+  streams never interleave and no raw `println!`/`eprintln!` is used.
 
 ## Realtime pipeline
 
@@ -173,10 +181,11 @@ frames drive the loop directly; otherwise the chunked path runs. Loops to Ctrl-C
 
 - **Adapter** — every `adapters/*` type adapts a framework to a port.
 - **Strategy** — translate modes (`translate`/`no-translate`/`echo`), resampler
-  selection, and the `RetryPolicy` resilience port (interchangeable
-  backoff/jitter strategies, injected at the root).
+  selection, the `RetryPolicy` resilience port (interchangeable backoff/jitter
+  strategies, injected at the root), and the `Presenter` output port
+  (`console | json | buffer` renderers selected at the root, ADR-0009).
 - **Factory** — `main.rs` composition root.
-- **Builder** — fluent speech-request and config assembly.
+- **Builder** — fluent speech-request, config, and `Report`/`Table` assembly.
 - **Facade** — application facade shared by CLI and daemon.
 - **Repository** — `VoiceRepository` for saved voices.
 
@@ -198,5 +207,6 @@ frames drive the loop directly; otherwise the chunked path runs. Loops to Ctrl-C
   the full `#Config` catalog mirroring ADR-0006 (`config.cue`, including the
   `#Retry` and `#Http` sections); `RealtimeFrame` SSE DTO included.
 - `docs/arch/specs/features/*.feature` — executable acceptance scenarios.
-- `docs/arch/adr/0001..0008` — the binding decision record (ADR-0008 records
-  the edition-2021 deferral).
+- `docs/arch/adr/0001..0009` — the binding decision record (ADR-0008 records
+  the edition-2021 deferral; ADR-0009 records the `Presenter` output port +
+  `tracing` diagnostics discipline).

@@ -93,6 +93,17 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   (`src/ports/retry.rs`: the Strategy port with a blanket impl for the pure
   `domain::retry::RetryPolicy` value object, exercised via dynamic dispatch in a
   unit test.)
+- [x] T024 `[ports]` `Presenter` output port: the swappable seam every command
+  RESULT flows through so no raw `println!`/`eprintln!` leaks into the layers
+  (ADR-0009). Carries structured `Report` (titled key/value) and `Table`
+  (headers + rows) presentation value objects (fluent Builders) plus a free-form
+  `line`; DIAGNOSTICS stay on `tracing` (ADR-0002), never on this port.
+  (`src/ports/presenter.rs`: the object-safe `Presenter` trait
+  (`report`/`table`/`line`) over the pure `Report`/`Table` value objects — no
+  framework / `serde_json` type crosses the boundary; the `--quiet`/`--json`/
+  `--color` behaviour and JSON serialisation are the console/json adapters'
+  concern (T048). Unit-tested through a capture-buffer presenter, incl. a
+  `dyn Presenter` object-safety check.)
 
 ## Driven adapters
 
@@ -221,6 +232,13 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   (Partial: the seeded backoff loop now lives in the reqwest `SpeechClient` and
   honors the full `retry_on` classification incl. 5xx/429 responses; extraction
   into a generic port-preserving decorator across all driven ports is pending.)
+- [ ] T048 `[adapter:presenter]` `Presenter` output adapters (ADR-0009): a
+  `console` renderer (coloured, aligned human text; honours `--quiet` suppression
+  and `--color`/`NO_COLOR`) and a `json` renderer (machine-readable per FR-16),
+  selected from the global flags and injected at the composition root (T054);
+  plus the capture-buffer test double. Diagnostics ride `tracing` (stderr,
+  verbosity-gated via `-v`/`--verbose` + `RUST_LOG`/`SPEAK_LOG`, ALWAYS to the
+  rotating `~/.speak/logs` file). The `Presenter` port (T024) is in place.
 
 ## Application (use cases)
 
@@ -315,7 +333,10 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   the CLI); add the repeatable `--output-device` on `say`/`realtime`; `say
   --voice` (per-call clone, distinct from the TTS `--voice`/`alloy`), `realtime
   --instruct/--voice` (output voice), `realtime --translate/--no-translate/
-  --echo` modes; `--list-designs`; the global `--json` flag (FR-16).
+  --echo` modes; `--list-designs`; the global `--json` flag (FR-16). Emit every
+  command RESULT through the `Presenter` port (T024/T048) — converting the
+  existing `println!` piles (`check`, `config show`, `--list-designs`,
+  transcript/realtime output) — never raw `println!`/`eprintln!` (ADR-0009).
   (Partial: `say`/`transcribe`/`translate`/`voices` now build the domain
   `SpeechSpec`/`TranscribeRequest`/`Language` and drive the `openai` adapter
   ports (`Synthesizer`/`Transcriber`/`Translator`/`VoiceRepository`) directly

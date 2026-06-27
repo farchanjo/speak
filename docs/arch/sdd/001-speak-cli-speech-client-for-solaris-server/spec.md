@@ -15,7 +15,9 @@ layout of ADR-0003 (the `domain`/`ports`/`application`/`adapters`/`cli` tree),
 the `async-openai` + `eventsource-stream` migration, the `[retry]`/`[http]`
 config sections, the `record`/`devices` commands, the repeatable
 `--output-device` fan-out, the `--translate`/`--no-translate`/`--echo` realtime
-modes, and the edition-2024 bump are an **accepted but in-progress refactor**.
+modes, the `Presenter` output port + `tracing` diagnostics discipline (ADR-0009,
+replacing the scattered `println!`/`eprintln!`), and the edition-2024 bump are an
+**accepted but in-progress refactor**.
 Their tasks remain unchecked in `tasks.md` (whose checkbox legend reads
 `[x]` = present in the current tree, `[ ]` = pending for the hexagonal rebuild),
 so the `implemented` marker denotes the shipped flat-layout behavior, NOT
@@ -37,7 +39,9 @@ CoreAudio for device I/O) with zero process exec.
 
 The codebase follows Hexagonal architecture with DDD and named GoF patterns
 (ADR-0003): a pure `domain`, `ports` traits, `application` use cases, and
-`adapters` for OpenAI HTTP, CoreAudio, libav, config, daemon, and SSE.
+`adapters` for OpenAI HTTP, CoreAudio, libav, config, daemon, and SSE. Command
+results are emitted through a swappable `Presenter` output port and diagnostics
+flow through `tracing` (ADR-0009), so no raw `println!` leaks into the layers.
 
 ## User Stories
 
@@ -214,6 +218,13 @@ The codebase follows Hexagonal architecture with DDD and named GoF patterns
   `SPEAK_*` knob with a code default; the Validate phase asserts (grep/review)
   that no tunable is a hardcoded literal and that the retry policy is env-driven
   and tested.
+- **Output & logging discipline** (ADR-0009) — command RESULTS go to stdout
+  through a swappable `Presenter` port (`console | json | buffer`; honours
+  `--quiet`, `--json` per FR-16, and `--color`/`NO_COLOR`); DIAGNOSTICS go to
+  stderr (gated by a `-v`/`--verbose` count + `RUST_LOG`/`SPEAK_LOG`) and ALWAYS
+  to the rotating `~/.speak/logs` file through `tracing` (ADR-0002). No raw
+  `println!`/`eprintln!` for program output; the `Presenter` is unit-testable via
+  a capture buffer.
 
 ## Acceptance Scenarios
 
