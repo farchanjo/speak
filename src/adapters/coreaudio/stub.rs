@@ -41,3 +41,8 @@ pub fn capture_output(
 pub fn enumerate() -> Result<Vec<AudioDevice>> {
     bail!("audio device enumeration is only implemented on macOS (CoreAudio)")
 }
+
+/// TCC responsibility disclaim is macOS-only; a no-op elsewhere (ADR-0016).
+pub fn reexec_disclaimed() -> Result<()> {
+    Ok(())
+}

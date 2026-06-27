@@ -27,7 +27,7 @@ use crate::domain::capture_source::{CaptureDirection, CaptureSource};
 use crate::domain::pcm::PcmBuffer;
 use crate::ports::audio::{AudioDevice, AudioDeviceId, AudioSink, AudioSource};
 
-pub use backend::{capture, capture_output, enumerate, play, play_to};
+pub use backend::{capture, capture_output, enumerate, play, play_to, reexec_disclaimed};
 
 /// Native `CoreAudio` [`AudioSink`] + [`AudioSource`] Adapter (Factory: `new`).
 #[derive(Debug, Clone, Copy, Default)]

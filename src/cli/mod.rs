@@ -20,7 +20,7 @@ use speak::domain::capture_source::{CaptureDirection, CaptureSource};
 use speak::domain::voice::{StandardVoice, VoiceClone, VoiceMode};
 use speak::domain::voice_design::VoiceDesign;
 
-use args::CaptureSourceArg;
+use args::{CaptureSourceArg, Command};
 
 pub(crate) mod args;
 pub(crate) mod check;
@@ -81,6 +81,24 @@ pub(crate) fn capture_source(
         CaptureDirection::Input => cfg.audio.input.channel,
     });
     CaptureSource::new(direction, device, channel)
+}
+
+/// Whether `command` will capture the host **output** — the source resolves to
+/// `output` via the `--source` flag or `[audio.capture].source`. The composition
+/// root uses this to decide the macOS TCC-disclaim re-exec (ADR-0016).
+#[must_use]
+pub(crate) fn wants_output_capture(command: &Command, cfg: &Config) -> bool {
+    let source = match command {
+        Command::Transcribe(a) if a.stream => a.source,
+        Command::Record(a) => a.source,
+        Command::Realtime(a) => a.source,
+        _ => return false,
+    };
+    let direction = source.map_or_else(
+        || cfg.audio.capture.direction(),
+        CaptureSourceArg::direction,
+    );
+    matches!(direction, CaptureDirection::Output)
 }
 
 /// Resolve the voice **Strategy** (FR-2) shared by `say` and `realtime`:

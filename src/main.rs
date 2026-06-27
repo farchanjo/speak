@@ -33,10 +33,33 @@ use cli::speech::SpeechRole;
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    // Before logging/runtime: when this command captures the host output, re-exec
+    // as our own TCC-responsible subject so the audio-capture grant applies
+    // regardless of the launching terminal (macOS, ADR-0016). Re-execs + exits the
+    // parent; returns here only in the disclaimed child.
+    pre_dispatch_disclaim(&cli)?;
     // Parse first so `-v`/`--verbose` can size the console diagnostics layer;
     // RESULTS go to stdout via the Presenter, diagnostics to stderr + the file.
     let _log_guard = logging::init(cli.globals.verbose);
     run(cli).await
+}
+
+/// Re-exec as the TCC-responsible subject when the command captures host output.
+///
+/// Only the three capture commands can target `--source output`, so config is
+/// loaded only for them; everything else is untouched (ADR-0016).
+fn pre_dispatch_disclaim(cli: &Cli) -> Result<()> {
+    if !matches!(
+        cli.command,
+        Command::Transcribe(_) | Command::Record(_) | Command::Realtime(_)
+    ) {
+        return Ok(());
+    }
+    let cfg = Config::load(cli.globals.flags())?;
+    if cli::wants_output_capture(&cli.command, &cfg) {
+        speak::adapters::coreaudio::reexec_disclaimed()?;
+    }
+    Ok(())
 }
 
 /// Resolve configuration and dispatch the parsed command.

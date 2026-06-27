@@ -90,6 +90,9 @@ objc2-avf-audio = { version = "0.3", features = [
     "objc2-audio-toolbox",
 ] }
 block2 = "0.6"
+# posix_spawn + the private responsibility_spawnattrs_setdisclaim SPI for the
+# TCC-disclaim self-re-exec that makes `--source output` a TCC subject (ADR-0016).
+libc = "0.2"
 # CoreAudio HAL device enumeration (kAudioHardwarePropertyDevices, FR-10) and the
 # AudioUnit property set (kAudioOutputUnitProperty_CurrentDevice) used to pin a
 # fan-out engine to a device; CFString/AudioBufferList decode device metadata.

@@ -5,9 +5,11 @@
 //! `AudioSink` / `AudioSource` ports.
 
 mod device;
+mod disclaim;
 mod engine;
 mod tap;
 
 pub use device::enumerate;
+pub use disclaim::reexec_disclaimed;
 pub use engine::{capture, play, play_to};
 pub use tap::capture_output;
