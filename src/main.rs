@@ -29,8 +29,10 @@ use cli::args::{Cli, Command};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let _log_guard = logging::init();
     let cli = Cli::parse();
+    // Parse first so `-v`/`--verbose` can size the console diagnostics layer;
+    // RESULTS go to stdout via the Presenter, diagnostics to stderr + the file.
+    let _log_guard = logging::init(cli.globals.verbose);
     run(cli).await
 }
 

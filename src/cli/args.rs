@@ -53,6 +53,13 @@ pub struct GlobalArgs {
     /// Suppress non-essential status logging.
     #[arg(short = 'q', long, global = true)]
     pub quiet: bool,
+    /// Emit machine-readable JSON where the command supports it (FR-16).
+    #[arg(long, global = true)]
+    pub json: bool,
+    /// Increase console diagnostics verbosity (repeatable: -v info, -vv debug,
+    /// -vvv trace). Diagnostics always go to the rotating `~/.speak/logs` file.
+    #[arg(short = 'v', long = "verbose", global = true, action = clap::ArgAction::Count)]
+    pub verbose: u8,
 }
 
 impl GlobalArgs {
