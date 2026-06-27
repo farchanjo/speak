@@ -237,7 +237,12 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   `-o`/`--json` (the save-path resolution + file write stay in the CLI/daemon
   driving adapter, T051/T053). Unit-tested over the in-memory port doubles. The
   CLI wiring onto this use case is T051.)
-- [ ] T041 `[application]` `transcribe` and `translate` (file) use cases.
+- [x] T041 `[application]` `transcribe` and `translate` (file) use cases.
+  (`src/application/transcribe.rs` + `src/application/translate.rs`:
+  `TranscribeUseCase` over the `Transcriber` port and `TranslateUseCase` over the
+  `Translator` **Strategy** port are the thin shared seams the CLI and daemon
+  both call (the root injects the openai/Whisper vs chat-MT translate strategy).
+  Both unit-tested over the port doubles; CLI wiring is T051.)
 - [ ] T042 `[application]` `voices` use case (add/list/rm via `VoiceRepository`).
 - [ ] T043 `[application]` `record` use case (capture -> WAV/FLAC file).
 - [ ] T044 `[application]` `realtime` use case with the three **Strategy** modes

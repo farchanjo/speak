@@ -10,9 +10,13 @@
 
 pub mod playback;
 pub mod say;
+pub mod transcribe;
+pub mod translate;
 
 pub use playback::PlaybackStats;
 pub use say::{SayOptions, SayOutcome, SayUseCase};
+pub use transcribe::TranscribeUseCase;
+pub use translate::TranslateUseCase;
 
 #[cfg(test)]
 pub(crate) mod fakes;
