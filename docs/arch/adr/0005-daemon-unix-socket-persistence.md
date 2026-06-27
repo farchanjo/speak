@@ -91,3 +91,20 @@ pass-through (the realtime SSE stream itself, once the T036 eventsource adapter
 lands, is consumed in the foreground and reconnects under the shared retry policy,
 T046). Transient socket failures on the forward path retry under the same
 `RetryPolicy` as the network ports.
+
+## Refinement (2026-06-27): autostart wired
+
+`[daemon].autostart` was specified here but never consumed — the composition
+root's `speech_role` only checked `is_running(socket)` and otherwise went
+in-process, so setting `autostart = true` did nothing and one-shot calls stayed
+cold (~2.5 s) even when the user expected a warm daemon.
+
+It is now implemented: when no daemon answers the socket and `autostart` is set,
+`daemon::autostart` spawns this binary's own `daemon` subcommand **detached**
+(`setsid` + null stdio, so it outlives the one-shot CLI and survives a terminal
+close), waits up to ~3 s for the socket, and forwards through it; a failed or slow
+start falls back to the in-process stack so the command never breaks. The
+self-spawn is the single sanctioned `current_exe` exec allowed by the
+zero-media-exec gate. Measured: first call spawns + forwards, subsequent calls are
+warm (~0.4 s vs ~2.5 s cold). `speak daemon` itself remains foreground (run it
+backgrounded, e.g. `speak daemon &`, or rely on autostart).
