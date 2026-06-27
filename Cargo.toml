@@ -23,7 +23,7 @@ integration = []
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "signal", "time", "io-util", "net", "sync", "process"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "http2"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "http2", "stream"] }
 clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 clap_complete = "4"
 serde = { version = "1", features = ["derive"] }
@@ -42,6 +42,11 @@ ffmpeg-the-third = "5.0.0"
 # OpenSSL/native-tls toolchain.
 async-openai = { version = "0.41", default-features = false, features = ["rustls", "audio"] }
 eventsource-stream = "0.2"
+# SSE realtime consumer support: `futures-util` drives the byte/event streams the
+# `sse` adapter (T036) pulls from `reqwest::Response::bytes_stream` (gated by the
+# reqwest `stream` feature); `base64` decodes the SSE `audio_b64` audio chunks.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+base64 = "0.22"
 
 # Native macOS audio I/O (CoreAudio / AVFAudio) — device output + mixer + mic capture.
 [target.'cfg(target_os = "macos")'.dependencies]
