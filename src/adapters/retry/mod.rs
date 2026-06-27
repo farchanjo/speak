@@ -43,6 +43,10 @@ pub struct HttpStatusError {
 
 impl HttpStatusError {
     /// Build a status error from the response `status` and `body`.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "error constructor takes the owned body by value for caller ergonomics"
+    )]
     #[must_use]
     pub fn new(status: u16, body: String) -> Self {
         Self {
@@ -75,8 +79,7 @@ fn os_seed() -> f64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
+        .map_or(0, |d| d.subsec_nanos());
     f64::from(nanos) / 1_000_000_000.0
 }
 
@@ -99,6 +102,10 @@ mod tests {
         assert_eq!(err.to_string(), "server returned 503: upstream busy");
     }
 
+    #[expect(
+        clippy::float_cmp,
+        reason = "exact equality is the property under test (deterministic seed/jitter reproducibility)"
+    )]
     #[test]
     fn deterministic_seed_is_reproducible_and_in_range() {
         assert_eq!(deterministic_seed(7, 2), deterministic_seed(7, 2));
@@ -107,6 +114,10 @@ mod tests {
         }
     }
 
+    #[expect(
+        clippy::float_cmp,
+        reason = "exact equality is the property under test (deterministic seed/jitter reproducibility)"
+    )]
     #[test]
     fn jitter_entropy_uses_seed_when_present() {
         assert_eq!(

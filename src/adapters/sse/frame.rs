@@ -41,7 +41,7 @@ struct ErrorData {
 /// Unknown event types (heartbeats, comments, the default `message` type) yield
 /// `Ok(None)` so the consumer skips them; `audio` frames base64-decode the
 /// `audio_b64` field into raw bytes.
-pub fn decode(event_type: &str, data: &str) -> Result<Option<RealtimeFrame>> {
+pub(super) fn decode(event_type: &str, data: &str) -> Result<Option<RealtimeFrame>> {
     match event_type {
         "transcript" => Ok(Some(RealtimeFrame::Transcript {
             text: text_of(data)?,

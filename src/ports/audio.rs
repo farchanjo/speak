@@ -1,6 +1,6 @@
 //! `AudioSink` and `AudioSource` driven ports (T021).
 //!
-//! Native device I/O abstracted away from CoreAudio. `AudioSink` plays a
+//! Native device I/O abstracted away from `CoreAudio`. `AudioSink` plays a
 //! [`PcmBuffer`] on the default device or fans it out to N devices (FR-11), and
 //! enumerates output devices; `AudioSource` captures the microphone and
 //! enumerates input devices (FR-8/FR-9/FR-10). The coreaudio adapter implements
@@ -10,7 +10,7 @@ use anyhow::Result;
 
 use crate::domain::pcm::PcmBuffer;
 
-/// A CoreAudio device identifier (`AudioDeviceID`), surfaced by `speak devices`.
+/// A `CoreAudio` device identifier (`AudioDeviceID`), surfaced by `speak devices`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AudioDeviceId(pub u32);
 

@@ -42,11 +42,12 @@ pub fn log_dir() -> PathBuf {
     crate::paths::log_dir()
 }
 
-/// Initialise diagnostics logging: the rotating file layer plus, when `verbose`
-/// is non-zero (or `RUST_LOG` is set), a stderr console layer. The returned guard
-/// keeps the file writer thread alive for the program's lifetime; `None` means no
-/// file layer is active (logging disabled, the file path was unavailable, or only
-/// the console layer is running).
+/// Initialise diagnostics logging for the program's lifetime.
+///
+/// Sets up the rotating file layer and, when `verbose` is non-zero (or `RUST_LOG`
+/// is set), a stderr console layer. The returned guard keeps the file writer thread
+/// alive; `None` means no file layer is active (logging disabled, the file path was
+/// unavailable, or only the console layer is running).
 #[must_use]
 pub fn init(verbose: u8) -> Option<WorkerGuard> {
     let level = std::env::var(ENV_LEVEL).ok();
@@ -135,7 +136,9 @@ mod tests {
     use crate::testenv::ENV_LOCK;
 
     fn with_retention<T>(value: Option<&str>, body: impl FnOnce() -> T) -> T {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let prev = std::env::var(ENV_RETENTION).ok();
         match value {
             // SAFETY: env mutation is serialised on ENV_LOCK across all tests.
@@ -168,7 +171,9 @@ mod tests {
 
     #[test]
     fn console_filter_absent_without_verbose_or_env() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let prev = std::env::var("RUST_LOG").ok();
         // SAFETY: env mutation serialised on ENV_LOCK across all tests.
         unsafe { std::env::remove_var("RUST_LOG") };
@@ -181,7 +186,9 @@ mod tests {
 
     #[test]
     fn console_filter_honours_rust_log_over_verbose() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let prev = std::env::var("RUST_LOG").ok();
         // SAFETY: env mutation serialised on ENV_LOCK across all tests.
         unsafe { std::env::set_var("RUST_LOG", "speak=trace") };

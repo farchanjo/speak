@@ -27,7 +27,7 @@ use super::args::{TextFormat, TranslateArgs};
 use super::file_name;
 
 /// Run the `translate` subcommand, emitting the result through the Presenter.
-pub async fn run(
+pub(crate) async fn run(
     facade: &AppFacade,
     _cfg: &Config,
     args: TranslateArgs,

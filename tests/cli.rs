@@ -4,7 +4,7 @@
 //! and config path/origin reporting only.
 //!
 //! Cargo exports the built binary path as `CARGO_BIN_EXE_speak`, so no extra
-//! crate (assert_cmd) is required.
+//! crate (`assert_cmd`) is required.
 
 use std::process::{Command, Output};
 

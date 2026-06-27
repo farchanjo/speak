@@ -2,7 +2,7 @@
 //! of one synthesis request — input text, voice mode, output format, language,
 //! speed, and pass-through generation params.
 //!
-//! Pure: assembled through a fluent **Builder** (GoF Builder, ADR-0003) that
+//! Pure: assembled through a fluent **Builder** (`GoF` Builder, ADR-0003) that
 //! enforces the invariants (non-empty input; positive, finite speed; a chosen
 //! voice mode and language) and yields an immutable aggregate. No wire request
 //! shape lives here — the openai adapter translates it to JSON (ADR-0004). The
@@ -70,7 +70,7 @@ impl SpeechSpec {
     }
 }
 
-/// Fluent Builder for [`SpeechSpec`] (GoF Builder, ADR-0003).
+/// Fluent Builder for [`SpeechSpec`] (`GoF` Builder, ADR-0003).
 pub struct SpeechSpecBuilder {
     input: String,
     voice: Option<VoiceMode>,

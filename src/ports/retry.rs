@@ -28,11 +28,11 @@ pub trait RetryPolicy {
 /// The pure value object IS the default exponential-backoff Strategy.
 impl RetryPolicy for RetryPolicyVo {
     fn should_retry(&self, attempt: u32, kind: ErrorKind) -> bool {
-        RetryPolicyVo::should_retry(self, attempt, kind)
+        Self::should_retry(self, attempt, kind)
     }
 
     fn delay_for(&self, attempt: u32, seed: f64) -> Duration {
-        RetryPolicyVo::delay_for(self, attempt, seed)
+        Self::delay_for(self, attempt, seed)
     }
 }
 

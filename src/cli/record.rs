@@ -16,7 +16,7 @@ use super::AppFacade;
 use super::args::RecordArgs;
 
 /// Run the `record` subcommand.
-pub async fn run(
+pub(crate) async fn run(
     facade: &AppFacade,
     _cfg: &Config,
     args: RecordArgs,

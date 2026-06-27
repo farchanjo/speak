@@ -23,14 +23,14 @@ const POLL_STEP_MS: u64 = 50;
 
 /// Read the PID recorded in `path`, if it holds a single positive integer.
 #[must_use]
-pub fn read_pid(path: &Path) -> Option<i32> {
+pub(super) fn read_pid(path: &Path) -> Option<i32> {
     let text = std::fs::read_to_string(path).ok()?;
     text.trim().parse::<i32>().ok().filter(|&pid| pid > 0)
 }
 
 /// Atomically write `pid` to `path` (temp sibling + rename) so a reader never
 /// observes a half-written pidfile.
-pub fn write_pid_atomic(path: &Path, pid: u32) -> Result<()> {
+pub(super) fn write_pid_atomic(path: &Path, pid: u32) -> Result<()> {
     let tmp = temp_sibling(path, pid);
     std::fs::write(&tmp, format!("{pid}\n"))
         .with_context(|| format!("writing pidfile temp {}", tmp.display()))?;
@@ -40,7 +40,7 @@ pub fn write_pid_atomic(path: &Path, pid: u32) -> Result<()> {
 }
 
 /// Remove the pidfile, ignoring a missing file.
-pub fn remove(path: &Path) {
+pub(super) fn remove(path: &Path) {
     let _ = std::fs::remove_file(path);
 }
 
@@ -57,7 +57,7 @@ fn temp_sibling(path: &Path, pid: u32) -> PathBuf {
 /// owned by another user).
 #[cfg(unix)]
 #[must_use]
-pub fn is_alive(pid: i32) -> bool {
+pub(super) fn is_alive(pid: i32) -> bool {
     use nix::errno::Errno;
     use nix::sys::signal::{Signal, kill};
     use nix::unistd::Pid;
@@ -75,13 +75,13 @@ pub fn is_alive(_pid: i32) -> bool {
 
 /// Send SIGTERM to `pid` (graceful shutdown request).
 #[cfg(unix)]
-pub fn terminate(pid: i32) -> Result<()> {
+pub(super) fn terminate(pid: i32) -> Result<()> {
     signal(pid, nix::sys::signal::Signal::SIGTERM)
 }
 
 /// Send SIGKILL to `pid` (forced kill after the grace window).
 #[cfg(unix)]
-pub fn kill_hard(pid: i32) -> Result<()> {
+pub(super) fn kill_hard(pid: i32) -> Result<()> {
     signal(pid, nix::sys::signal::Signal::SIGKILL)
 }
 
@@ -102,7 +102,7 @@ pub fn kill_hard(_pid: i32) -> Result<()> {
 }
 
 /// SIGTERM `pid`, poll up to `grace` for it to exit, then SIGKILL if it lingers.
-pub async fn terminate_and_wait(pid: i32, grace: Duration) -> Result<()> {
+pub(super) async fn terminate_and_wait(pid: i32, grace: Duration) -> Result<()> {
     if !is_alive(pid) {
         return Ok(());
     }

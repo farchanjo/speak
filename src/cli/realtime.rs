@@ -34,7 +34,7 @@ const CHUNK_NAME: &str = "chunk.wav";
 /// the SSE path (`POST /v1/realtime/translate`) when the endpoint exists, else the
 /// chunked ASR -> MT -> TTS fallback (ADR-0004). One prebuilt binary decides at
 /// run time; both paths share the resolved [`RealtimeOptions`].
-pub async fn run(
+pub(crate) async fn run(
     facade: &AppFacade,
     cfg: &Config,
     globals: &GlobalArgs,

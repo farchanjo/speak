@@ -1,4 +1,4 @@
-//! Native macOS audio I/O via CoreAudio / AVFAudio (objc2 bindings).
+//! Native macOS audio I/O via `CoreAudio` / `AVFAudio` (objc2 bindings).
 //!
 //! Output graph: `AVAudioPlayerNode` -> `AVAudioEngine.mainMixerNode` (the
 //! native OS mixer) -> `outputNode`. Multi-output fan-out builds one
@@ -6,7 +6,7 @@
 //! specific `AudioDeviceID` via `kAudioOutputUnitProperty_CurrentDevice`, and
 //! schedules the same decoded buffer on each (ADR-0007). Capture taps
 //! `AVAudioEngine.inputNode`. libav owns codecs/resampling; every device I/O and
-//! mix operation here is native CoreAudio. Nothing is shelled out.
+//! mix operation here is native `CoreAudio`. Nothing is shelled out.
 
 use std::ptr::NonNull;
 use std::sync::mpsc::sync_channel;
@@ -28,7 +28,7 @@ use objc2_avf_audio::{
 use crate::domain::pcm::PcmBuffer;
 use crate::ports::audio::AudioDeviceId;
 
-/// Play interleaved float PCM through the native CoreAudio mixer on the default
+/// Play interleaved float PCM through the native `CoreAudio` mixer on the default
 /// output device, blocking until the buffer finishes (or a safety timeout).
 pub fn play(pcm: &PcmBuffer, volume: f32) -> Result<()> {
     if pcm.is_empty() {
@@ -41,9 +41,10 @@ pub fn play(pcm: &PcmBuffer, volume: f32) -> Result<()> {
     })
 }
 
-/// Fan one decoded buffer out to every device in `devices` simultaneously, each
-/// on its own engine pinned to that `AudioDeviceID` (FR-11 / ADR-0007). An empty
-/// list falls back to the default-device [`play`].
+/// Fan one decoded buffer out to every device in `devices` simultaneously.
+///
+/// Each device gets its own engine pinned to that `AudioDeviceID` (FR-11 / ADR-0007).
+/// An empty list falls back to the default-device [`play`].
 pub fn play_to(pcm: &PcmBuffer, devices: &[AudioDeviceId], volume: f32) -> Result<()> {
     if devices.is_empty() {
         return play(pcm, volume);
@@ -58,9 +59,11 @@ pub fn play_to(pcm: &PcmBuffer, devices: &[AudioDeviceId], volume: f32) -> Resul
     })
 }
 
-/// Capture roughly `secs` seconds of microphone audio as interleaved float PCM
-/// at the input device's native rate/channels. A `Some(device)` pins the input
-/// unit to that `AudioDeviceID`; `None` uses the system default input.
+/// Capture roughly `secs` seconds of microphone audio as interleaved float PCM.
+///
+/// Audio is recorded at the input device's native rate and channel count.
+/// A `Some(device)` pins the input unit to that `AudioDeviceID`; `None` uses
+/// the system default input.
 pub fn capture(device: Option<AudioDeviceId>, secs: f64) -> Result<PcmBuffer> {
     let device = device.map(|d| d.0);
     autoreleasepool(|_| {
@@ -309,7 +312,7 @@ unsafe fn append_buffer(buf: &AVAudioPCMBuffer, sink: &Arc<Mutex<Vec<f32>>>) {
 fn wait_capture(store: &Arc<Mutex<Vec<f32>>>, needed: usize, secs: f64) {
     let deadline = Instant::now() + Duration::from_secs_f64(secs + 2.0);
     loop {
-        if store.lock().map(|g| g.len() >= needed).unwrap_or(true) {
+        if store.lock().map_or(true, |g| g.len() >= needed) {
             break;
         }
         if Instant::now() >= deadline {

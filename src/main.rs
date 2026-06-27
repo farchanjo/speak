@@ -8,8 +8,8 @@
 //! logic of its own — that lives in `speak::application`, behind the ports.
 //!
 //! Media path: server audio is decoded and resampled with linked `libav*`
-//! (ffmpeg-the-third) and played through the native macOS CoreAudio mixer
-//! (AVAudioEngine); the microphone is captured natively too. Nothing is shelled
+//! (ffmpeg-the-third) and played through the native macOS `CoreAudio` mixer
+//! (`AVAudioEngine`); the microphone is captured natively too. Nothing is shelled
 //! out.
 
 mod cli;

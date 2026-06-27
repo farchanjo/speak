@@ -1,4 +1,4 @@
-//! libav (FFmpeg) decode + resample internals for the `libav` adapter.
+//! libav (`FFmpeg`) decode + resample internals for the `libav` adapter.
 //!
 //! Responsibilities (codec role only, no device I/O, no process exec):
 //!   * decode compressed network audio (mp3/opus/aac/flac/wav/pcm) into PCM,
@@ -22,7 +22,7 @@ use ffmpeg_the_third as ff;
 
 use crate::domain::pcm::PcmBuffer;
 
-/// Canonical playback format the decoder resamples to. The native CoreAudio
+/// Canonical playback format the decoder resamples to. The native `CoreAudio`
 /// mixer performs the final hardware-rate conversion.
 pub const PLAY_RATE: u32 = 48_000;
 /// Canonical playback channel count (stereo).
@@ -33,6 +33,10 @@ pub const ASR_RATE: u32 = 16_000;
 /// Capture/ASR channel count (mono).
 pub const ASR_CHANNELS: u16 = 1;
 
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "libav initialisation is conceptually fallible; Result kept for forward-compatibility"
+)]
 pub(super) fn ensure_init() -> Result<()> {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
@@ -204,7 +208,7 @@ pub fn wav_pcm16(samples: &[i16], sample_rate: u32, channels: u16) -> Vec<u8> {
 
 /// Quantise interleaved float PCM to interleaved signed-16 (record encoders).
 #[must_use]
-pub fn f32_to_i16(samples: &[f32]) -> Vec<i16> {
+pub(super) fn f32_to_i16(samples: &[f32]) -> Vec<i16> {
     samples
         .iter()
         .map(|&s| (s.clamp(-1.0, 1.0) * f32::from(i16::MAX)).round() as i16)
@@ -358,6 +362,10 @@ fn decode_stream(input: &mut ff::format::context::Input, threads: u32) -> Result
     Ok(bytes_to_f32(&out))
 }
 
+#[expect(
+    clippy::needless_pass_by_ref_mut,
+    reason = "ffmpeg Input is taken &mut for API consistency with the packet-reading decode path"
+)]
 fn open_audio_decoder(
     input: &mut ff::format::context::Input,
     threads: u32,
@@ -373,7 +381,7 @@ fn open_audio_decoder(
         && let Ok(audio) = fresh_ctx(&stream, threads)?
             .decoder()
             .open_as(codec)
-            .and_then(|o| o.audio())
+            .and_then(ffmpeg_the_third::decoder::Opened::audio)
     {
         return Ok((index, audio));
     }
@@ -575,6 +583,10 @@ mod tests {
         u16::from_le_bytes([buf[at], buf[at + 1]])
     }
 
+    #[expect(
+        clippy::float_cmp,
+        reason = "exact equality is the property under test (rms of silence is exactly 0.0)"
+    )]
     #[test]
     fn rms_of_silence_is_zero() {
         assert_eq!(rms_s16(&[]), 0.0);

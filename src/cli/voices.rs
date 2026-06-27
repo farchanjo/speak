@@ -12,7 +12,7 @@ use super::AppFacade;
 use super::args::VoicesAction;
 
 /// Run the `voices` subcommand, emitting its RESULT through the Presenter.
-pub async fn run(
+pub(crate) async fn run(
     facade: &AppFacade,
     action: VoicesAction,
     presenter: &mut dyn Presenter,

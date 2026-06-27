@@ -15,7 +15,7 @@ use super::args::TranscribeArgs;
 use super::file_name;
 
 /// Run the `transcribe` subcommand, emitting the transcript through the Presenter.
-pub async fn run(
+pub(crate) async fn run(
     facade: &AppFacade,
     cfg: &Config,
     args: TranscribeArgs,

@@ -7,7 +7,11 @@ use clap_complete::{Shell, generate};
 use super::args::Cli;
 
 /// Generate and print the completion script for `shell`.
-pub fn emit(shell: Shell) -> Result<()> {
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "CLI handlers share a uniform Result signature for the dispatch table"
+)]
+pub(crate) fn emit(shell: Shell) -> Result<()> {
     let mut cmd = Cli::command();
     generate(shell, &mut cmd, "speak", &mut std::io::stdout());
     Ok(())

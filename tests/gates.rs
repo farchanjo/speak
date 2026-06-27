@@ -3,7 +3,7 @@
 //! the instant either invariant is violated — no external grep step to remember.
 //!
 //! 1. **Zero media-exec.** The media path decodes/resamples in-process with the
-//!    linked `libav*` (`ffmpeg-the-third`) and plays through the native CoreAudio
+//!    linked `libav*` (`ffmpeg-the-third`) and plays through the native `CoreAudio`
 //!    mixer; nothing is shelled out (ADR-0002 / ADR-0007). No
 //!    `std::process::Command` / `tokio::process::Command` spawn of any external
 //!    binary — least of all `ffmpeg`/`afplay`/`ffplay` — may appear anywhere in

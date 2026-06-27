@@ -1,6 +1,6 @@
-//! macOS CoreAudio / AVFAudio backend for the `coreaudio` adapter.
+//! macOS `CoreAudio` / `AVFAudio` backend for the `coreaudio` adapter.
 //!
-//! Splits into device enumeration ([`device`]) and the AVAudioEngine playback /
+//! Splits into device enumeration ([`device`]) and the `AVAudioEngine` playback /
 //! capture graph ([`engine`]); the parent module wires both behind the
 //! `AudioSink` / `AudioSource` ports.
 

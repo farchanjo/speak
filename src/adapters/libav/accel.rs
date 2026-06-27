@@ -6,7 +6,7 @@
 //! the server's (it runs TTS/ASR inference) — so there is no GPU audio-decode
 //! path. The applicable *local* acceleration here is:
 //!   * all CPU cores via libav frame threading, and
-//!   * Apple AudioToolbox audio decoders (`*_at`) on macOS.
+//!   * Apple `AudioToolbox` audio decoders (`*_at`) on macOS.
 //!
 //! `probe()` reports what is available; `resolve_decoder()` applies the policy
 //! (`SPEAK_HWACCEL=auto|off|<decoder-name>`) per stream.
@@ -19,7 +19,7 @@ use ffmpeg_the_third as ff;
 /// Environment variable that overrides hardware-acceleration auto-detect.
 pub const ENV_HWACCEL: &str = "SPEAK_HWACCEL";
 
-/// AudioToolbox decoders worth probing for on macOS.
+/// `AudioToolbox` decoders worth probing for on macOS.
 const AT_DECODERS: &[&str] = &[
     "aac_at",
     "ac3_at",
@@ -50,7 +50,7 @@ pub enum Policy {
 #[must_use]
 pub fn policy() -> Policy {
     match std::env::var(ENV_HWACCEL).ok().as_deref().map(str::trim) {
-        None | Some("") | Some("auto") => Policy::Auto,
+        None | Some("" | "auto") => Policy::Auto,
         Some("off" | "none" | "false") => Policy::Off,
         Some(name) => Policy::Named(name.to_owned()),
     }
@@ -87,7 +87,7 @@ pub struct Report {
     pub libavcodec: String,
     /// libav hardware device types compiled in (mostly video).
     pub hwdevice_types: Vec<String>,
-    /// AudioToolbox audio decoders actually present.
+    /// `AudioToolbox` audio decoders actually present.
     pub audiotoolbox_decoders: Vec<String>,
     /// Effective policy string.
     pub policy: String,
@@ -150,7 +150,9 @@ mod tests {
     use crate::testenv::ENV_LOCK;
 
     fn with_hwaccel<T>(value: Option<&str>, body: impl FnOnce() -> T) -> T {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let prev = std::env::var(ENV_HWACCEL).ok();
         match value {
             // TODO: Audit that the environment access only happens in single-threaded code.
@@ -202,6 +204,10 @@ mod tests {
         });
     }
 
+    #[expect(
+        clippy::decimal_bitwise_operands,
+        reason = "libav version octets read naturally as decimal in the assertion"
+    )]
     #[test]
     fn version_string_unpacks_semver() {
         // libav packs version as (major << 16) | (minor << 8) | micro.

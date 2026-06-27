@@ -136,7 +136,9 @@ mod tests {
     /// arm), and with one when it is set. No network is touched.
     #[test]
     fn new_selects_chat_mt_strategy_from_config() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // TODO: Audit that the environment access only happens in single-threaded code.
         unsafe { std::env::remove_var("SPEAK_TRANSLATE_URL") };
         let cfg = Config::load(GlobalFlags::default()).unwrap();

@@ -161,6 +161,10 @@ mod tests {
         }
     }
 
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "test frame builder mirrors the fallible production decoder signature"
+    )]
     fn transcript(text: &str) -> Result<Option<RealtimeFrame>> {
         Ok(Some(RealtimeFrame::Transcript {
             text: text.to_owned(),

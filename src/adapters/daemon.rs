@@ -274,7 +274,7 @@ pub async fn is_running(socket: &Path) -> bool {
 /// It implements the SAME five ports the in-process `openai` adapter does, so the
 /// composition root can inject it in place of `Retry<OpenAiAdapter>` without the
 /// use cases ever knowing. Transient socket failures are retried under the
-/// injected [`RetryPolicy`] (the CommandTransport decorator, T046 / ADR-0005).
+/// injected [`RetryPolicy`] (the `CommandTransport` decorator, T046 / ADR-0005).
 pub struct DaemonSpeechAdapter {
     socket: PathBuf,
     policy: RetryPolicy,
@@ -503,7 +503,9 @@ impl State {
 
     /// Lock the health watchdog (recovering a poisoned lock).
     fn health_lock(&self) -> std::sync::MutexGuard<'_, Health> {
-        self.health.lock().unwrap_or_else(|p| p.into_inner())
+        self.health
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// The current consecutive-failure count (for the watchdog backoff).
@@ -630,8 +632,7 @@ fn spawn_idle_watch(state: &Arc<State>) {
             let idle = state
                 .last_active
                 .lock()
-                .map(|t| t.elapsed().as_secs())
-                .unwrap_or(0);
+                .map_or(0, |t| t.elapsed().as_secs());
             if idle >= state.idle_timeout {
                 state.shutdown.notify_one();
                 break;
@@ -798,7 +799,7 @@ async fn stop(cfg: &Config, presenter: &mut dyn Presenter) -> Result<()> {
     presenter.report(&report)
 }
 
-/// `daemon restart`: start() already replaces a running previous instance
+/// `daemon restart`: `start()` already replaces a running previous instance
 /// (ADR-0010), so a restart is a fresh start that supersedes whatever is running.
 async fn restart(cfg: &Config) -> Result<()> {
     start(cfg, false).await

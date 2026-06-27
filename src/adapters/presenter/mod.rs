@@ -56,7 +56,7 @@ mod tests {
         // SAFETY: env mutation serialised on the process-wide test lock.
         let _guard = crate::testenv::ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let prev = std::env::var_os("NO_COLOR");
         unsafe { std::env::set_var("NO_COLOR", "1") };
         assert!(!color_enabled(true));

@@ -58,9 +58,7 @@ fn env_path(key: &str) -> Option<PathBuf> {
 }
 
 fn base_home() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
+    std::env::var_os("HOME").map_or_else(|| PathBuf::from("."), PathBuf::from)
 }
 
 #[cfg(test)]
@@ -72,7 +70,9 @@ mod tests {
     /// given names removed, restoring every touched var afterwards. A single,
     /// non-nesting helper avoids re-entrant locking on the non-reentrant Mutex.
     fn scoped<T>(set: &[(&str, &str)], unset: &[&str], body: impl FnOnce() -> T) -> T {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut saved: Vec<(String, Option<String>)> = Vec::new();
         for (k, v) in set {
             saved.push(((*k).to_owned(), std::env::var(k).ok()));

@@ -32,7 +32,7 @@ pub(super) struct SpeechBody {
     gen_params: Map<String, Value>,
 }
 
-/// Fluent **Builder** for the extended speech [`SpeechBody`] (GoF Builder).
+/// Fluent **Builder** for the extended speech [`SpeechBody`] (`GoF` Builder).
 pub struct SpeechBodyBuilder {
     body: SpeechBody,
 }
@@ -59,7 +59,7 @@ impl SpeechBodyBuilder {
     /// Set the `response_format` token.
     #[must_use]
     pub fn format(mut self, format: &str) -> Self {
-        self.body.response_format = format.to_owned();
+        format.clone_into(&mut self.body.response_format);
         self
     }
 
@@ -73,7 +73,7 @@ impl SpeechBodyBuilder {
     /// Set the language hint.
     #[must_use]
     pub fn language(mut self, language: &str) -> Self {
-        self.body.language = language.to_owned();
+        language.clone_into(&mut self.body.language);
         self
     }
 

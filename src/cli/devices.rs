@@ -14,7 +14,7 @@ use speak::ports::presenter::{Presenter, Table};
 
 /// Run the `devices` subcommand, emitting the device inventory through the
 /// Presenter.
-pub fn run(presenter: &mut dyn Presenter) -> Result<()> {
+pub(crate) fn run(presenter: &mut dyn Presenter) -> Result<()> {
     let devices = coreaudio::enumerate()?;
     let mut table = Table::new([
         "id",

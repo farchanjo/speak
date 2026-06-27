@@ -24,7 +24,7 @@ use super::AppFacade;
 use super::args::{GlobalArgs, SayArgs};
 
 /// Run the `say` subcommand, emitting its RESULT through the Presenter.
-pub async fn run(
+pub(crate) async fn run(
     facade: &AppFacade,
     cfg: &Config,
     globals: &GlobalArgs,
@@ -139,7 +139,7 @@ fn report(
 }
 
 /// Merge configured `[tts.gen]` params, then overlay per-call `--set` overrides.
-pub fn gen_extra(cfg: &Config, sets: &[String]) -> Result<GenParams> {
+pub(crate) fn gen_extra(cfg: &Config, sets: &[String]) -> Result<GenParams> {
     let mut params = gen_to_params(&cfg.tts.gen_params);
     for (key, value) in gen_params::parse_overrides(sets)? {
         params.insert(key, value);
@@ -149,7 +149,7 @@ pub fn gen_extra(cfg: &Config, sets: &[String]) -> Result<GenParams> {
 
 /// Project the configured `[tts.gen]` params into the domain [`GenParams`] value
 /// object (unset => absent); the openai adapter maps it to JSON at the boundary.
-pub fn gen_to_params(g: &config::Gen) -> GenParams {
+pub(crate) fn gen_to_params(g: &config::Gen) -> GenParams {
     let mut params = GenParams::new();
     let mut put = |k: &str, v: Option<GenValue>| {
         if let Some(v) = v {
@@ -189,7 +189,7 @@ pub fn gen_to_params(g: &config::Gen) -> GenParams {
 }
 
 /// Join positional text args, or read stdin when none were given.
-pub fn resolve_text(parts: &[String]) -> Result<String> {
+pub(crate) fn resolve_text(parts: &[String]) -> Result<String> {
     if !parts.is_empty() {
         return Ok(parts.join(" "));
     }

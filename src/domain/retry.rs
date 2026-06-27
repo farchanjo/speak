@@ -26,6 +26,10 @@ pub enum ErrorKind {
 }
 
 /// Which transient error classes are eligible for retry.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "retry-class toggle flags map 1:1 to the [retry] retry_on TOML keys"
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RetryOn {
     /// Retry on connect failures.
@@ -133,7 +137,7 @@ impl RetryPolicy {
         }
         let half = capped / 2;
         let span = (capped - half) as f64;
-        let jittered = half as f64 + seed.clamp(0.0, 1.0) * span;
+        let jittered = seed.clamp(0.0, 1.0).mul_add(span, half as f64);
         Duration::from_millis(jittered as u64)
     }
 
@@ -172,7 +176,7 @@ mod tests {
     #[test]
     fn delay_is_capped() {
         let p = fixed();
-        assert_eq!(p.delay_for(20, 0.0), Duration::from_millis(10_000));
+        assert_eq!(p.delay_for(20, 0.0), Duration::from_secs(10));
     }
 
     #[test]

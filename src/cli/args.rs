@@ -26,7 +26,7 @@ use speak::adapters::daemon;
     propagate_version = true,
     arg_required_else_help = true
 )]
-pub struct Cli {
+pub(crate) struct Cli {
     /// Global options shared by every subcommand.
     #[command(flatten)]
     pub globals: GlobalArgs,
@@ -37,7 +37,7 @@ pub struct Cli {
 
 /// Global options shared by every subcommand (flags override `SPEAK_*` env).
 #[derive(Args, Debug)]
-pub struct GlobalArgs {
+pub(crate) struct GlobalArgs {
     /// Server base URL.
     #[arg(long, global = true, env = "SPEAK_HOST", value_name = "URL")]
     pub host: Option<String>,
@@ -65,7 +65,7 @@ pub struct GlobalArgs {
 impl GlobalArgs {
     /// Project the global flags into the config resolver's [`GlobalFlags`].
     #[must_use]
-    pub fn flags(&self) -> GlobalFlags {
+    pub(crate) fn flags(&self) -> GlobalFlags {
         GlobalFlags {
             host: self.host.clone(),
             api_key: self.api_key.clone(),
@@ -78,7 +78,7 @@ impl GlobalArgs {
 
 /// Every `speak` subcommand.
 #[derive(Subcommand, Debug)]
-pub enum Command {
+pub(crate) enum Command {
     /// Synthesize speech and play it locally.
     #[command(alias = "tts")]
     Say(SayArgs),
@@ -120,7 +120,7 @@ pub enum Command {
 
 /// `say` arguments.
 #[derive(Args, Debug)]
-pub struct SayArgs {
+pub(crate) struct SayArgs {
     /// Text to speak (reads stdin when omitted).
     #[arg(value_name = "TEXT")]
     pub text: Vec<String>,
@@ -133,7 +133,7 @@ pub struct SayArgs {
     /// Speed multiplier.
     #[arg(long, default_value_t = 1.0, value_name = "F")]
     pub speed: f32,
-    /// Audio response format (overrides config / SPEAK_FORMAT).
+    /// Audio response format (overrides config / `SPEAK_FORMAT`).
     #[arg(long, value_enum, value_name = "FMT")]
     pub format: Option<AudioFormat>,
     /// Voice design tags, comma-separated (e.g. "Female, British Accent").
@@ -145,7 +145,7 @@ pub struct SayArgs {
     /// Target duration hint in seconds.
     #[arg(long, value_name = "SECS")]
     pub duration: Option<f32>,
-    /// Repeatable generation param, key=value (e.g. --set num_step=32).
+    /// Repeatable generation param, key=value (e.g. --set `num_step=32`).
     #[arg(long = "set", value_name = "KEY=VALUE")]
     pub set: Vec<String>,
     /// Output device `AudioDeviceID` for playback; repeatable to fan out (FR-11).
@@ -161,7 +161,7 @@ pub struct SayArgs {
 
 /// `transcribe` arguments.
 #[derive(Args, Debug)]
-pub struct TranscribeArgs {
+pub(crate) struct TranscribeArgs {
     /// Audio file to transcribe.
     #[arg(value_name = "FILE")]
     pub file: PathBuf,
@@ -175,7 +175,7 @@ pub struct TranscribeArgs {
 
 /// `translate` arguments.
 #[derive(Args, Debug)]
-pub struct TranslateArgs {
+pub(crate) struct TranslateArgs {
     /// Audio file to translate.
     #[arg(value_name = "FILE")]
     pub file: PathBuf,
@@ -198,7 +198,7 @@ pub struct TranslateArgs {
         .multiple(false)
         .args(["translate", "no_translate", "echo"])
 ))]
-pub struct RealtimeArgs {
+pub(crate) struct RealtimeArgs {
     /// Source language hint (auto-detect when omitted).
     #[arg(long, value_name = "LANG")]
     pub from: Option<String>,
@@ -231,7 +231,7 @@ pub struct RealtimeArgs {
 impl RealtimeArgs {
     /// Resolve the selected pipeline mode (default `Translate`).
     #[must_use]
-    pub fn mode(&self) -> speak::domain::realtime::RealtimeMode {
+    pub(crate) fn mode(&self) -> speak::domain::realtime::RealtimeMode {
         use speak::domain::realtime::RealtimeMode;
         if self.no_translate {
             RealtimeMode::NoTranslate
@@ -245,7 +245,7 @@ impl RealtimeArgs {
 
 /// `record` arguments (FR-9).
 #[derive(Args, Debug)]
-pub struct RecordArgs {
+pub(crate) struct RecordArgs {
     /// Output file (`.wav`/`.flac`).
     #[arg(short = 'o', long, value_name = "FILE")]
     pub output: PathBuf,
@@ -268,7 +268,7 @@ pub struct RecordArgs {
 
 /// `record` output containers (maps to the codec port's `RecordFormat`).
 #[derive(Copy, Clone, Debug, ValueEnum)]
-pub enum RecordFormatArg {
+pub(crate) enum RecordFormatArg {
     /// RIFF/WAVE PCM.
     Wav,
     /// Free Lossless Audio Codec.
@@ -278,7 +278,7 @@ pub enum RecordFormatArg {
 impl RecordFormatArg {
     /// Project the CLI choice onto the codec port's `RecordFormat`.
     #[must_use]
-    pub fn to_record_format(self) -> speak::ports::codec::RecordFormat {
+    pub(crate) fn to_record_format(self) -> speak::ports::codec::RecordFormat {
         use speak::ports::codec::RecordFormat;
         match self {
             Self::Wav => RecordFormat::Wav,
@@ -289,15 +289,15 @@ impl RecordFormatArg {
 
 /// `devices` arguments.
 #[derive(Args, Debug)]
-pub struct DevicesArgs {
+pub(crate) struct DevicesArgs {
     /// Emit the device list as JSON.
     #[arg(long)]
     pub json: bool,
 }
 
 /// `config` actions.
-#[derive(Subcommand, Debug)]
-pub enum ConfigAction {
+#[derive(Subcommand, Debug, Clone, Copy)]
+pub(crate) enum ConfigAction {
     /// Write a default config file if absent.
     Init,
     /// Print the config file path.
@@ -308,7 +308,7 @@ pub enum ConfigAction {
 
 /// `voices` actions.
 #[derive(Subcommand, Debug)]
-pub enum VoicesAction {
+pub(crate) enum VoicesAction {
     /// Save a voice from a reference audio file.
     Add(VoiceAddArgs),
     /// List saved voices.
@@ -323,7 +323,7 @@ pub enum VoicesAction {
 
 /// `voices add` arguments.
 #[derive(Args, Debug)]
-pub struct VoiceAddArgs {
+pub(crate) struct VoiceAddArgs {
     /// Voice name to register.
     #[arg(value_name = "NAME")]
     pub name: String,
@@ -335,9 +335,9 @@ pub struct VoiceAddArgs {
     pub ref_text: Option<String>,
 }
 
-/// OpenAI audio response formats.
+/// `OpenAI` audio response formats.
 #[derive(Copy, Clone, Debug, ValueEnum)]
-pub enum AudioFormat {
+pub(crate) enum AudioFormat {
     /// MPEG-1 Audio Layer III.
     Mp3,
     /// Opus in an Ogg container.
@@ -355,7 +355,7 @@ pub enum AudioFormat {
 impl AudioFormat {
     /// The canonical wire token.
     #[must_use]
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Mp3 => "mp3",
             Self::Opus => "opus",
@@ -369,14 +369,14 @@ impl AudioFormat {
 
 /// Transcript/translation text formats.
 #[derive(Copy, Clone, Debug, ValueEnum)]
-pub enum TextFormat {
+pub(crate) enum TextFormat {
     /// Plain text.
     Text,
     /// JSON envelope.
     Json,
-    /// SubRip subtitles.
+    /// `SubRip` subtitles.
     Srt,
-    /// WebVTT subtitles.
+    /// `WebVTT` subtitles.
     Vtt,
     /// Verbose JSON with timestamps.
     #[value(name = "verbose_json")]
@@ -386,7 +386,7 @@ pub enum TextFormat {
 impl TextFormat {
     /// The canonical wire token.
     #[must_use]
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Text => "text",
             Self::Json => "json",

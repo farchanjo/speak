@@ -1,9 +1,9 @@
-//! CoreAudio HAL device enumeration (`kAudioHardwarePropertyDevices`, FR-10).
+//! `CoreAudio` HAL device enumeration (`kAudioHardwarePropertyDevices`, FR-10).
 //!
 //! Walks the HAL system object for every `AudioDeviceID`, then reads each
 //! device's name, UID, per-direction channel counts, nominal sample rate, and
 //! default-in/out status into the platform-neutral [`AudioDevice`] descriptor.
-//! No CoreAudio type crosses the port boundary (ADR-0007).
+//! No `CoreAudio` type crosses the port boundary (ADR-0007).
 
 use std::ptr::{self, NonNull};
 
@@ -141,6 +141,10 @@ fn channel_count(id: AudioObjectID, scope: u32) -> u16 {
         if st != 0 {
             return 0;
         }
+        #[expect(
+            clippy::cast_ptr_alignment,
+            reason = "AudioBufferList is HAL-allocated by CoreAudio and is correctly aligned"
+        )]
         let list = &*buf.as_ptr().cast::<AudioBufferList>();
         let buffers =
             std::slice::from_raw_parts(list.mBuffers.as_ptr(), list.mNumberBuffers as usize);

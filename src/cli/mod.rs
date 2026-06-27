@@ -18,29 +18,29 @@ use speak::application::SpeakFacade;
 use speak::domain::voice::{StandardVoice, VoiceClone, VoiceMode};
 use speak::domain::voice_design::VoiceDesign;
 
-pub mod args;
-pub mod check;
-pub mod completions;
-pub mod config;
-pub mod devices;
-pub mod realtime;
-pub mod record;
-pub mod say;
-pub mod speech;
-pub mod transcribe;
-pub mod translate;
-pub mod voices;
+pub(crate) mod args;
+pub(crate) mod check;
+pub(crate) mod completions;
+pub(crate) mod config;
+pub(crate) mod devices;
+pub(crate) mod realtime;
+pub(crate) mod record;
+pub(crate) mod say;
+pub(crate) mod speech;
+pub(crate) mod transcribe;
+pub(crate) mod translate;
+pub(crate) mod voices;
 
 /// The concrete application Facade the composition root injects into every
 /// handler: the [`speech::SpeechRole`] selector (in-process retry-wrapped
 /// `openai` adapter, or a forwarder to a running warm daemon — T053), the
 /// `coreaudio` audio adapter, and the `libav` codec adapter wired together
 /// (ADR-0003 / ADR-0005 / T054).
-pub type AppFacade = SpeakFacade<speech::SpeechRole, CoreAudio, LibavCodec>;
+pub(crate) type AppFacade = SpeakFacade<speech::SpeechRole, CoreAudio, LibavCodec>;
 
 /// Extract a multipart-friendly basename from `path`, with a stable fallback.
 #[must_use]
-pub fn file_name(path: &Path) -> String {
+pub(crate) fn file_name(path: &Path) -> String {
     path.file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("audio")
@@ -51,7 +51,7 @@ pub fn file_name(path: &Path) -> String {
 /// `instruct` tags select the voice-design arm; an `explicit_voice` flag or a
 /// `ref_text` selects the clone arm (carrying the reference transcript); else the
 /// configured `voice_name` is the standard voice.
-pub fn resolve_voice(
+pub(crate) fn resolve_voice(
     voice_name: &str,
     explicit_voice: bool,
     instruct: Option<&str>,

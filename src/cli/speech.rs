@@ -27,7 +27,7 @@ use speak::ports::voice::VoiceRepository;
 /// The interchangeable `Speech` adapter role (Strategy) the composition root
 /// selects at dispatch time. `Direct` is boxed because the in-process composite
 /// is far larger than the thin socket forwarder.
-pub enum SpeechRole {
+pub(crate) enum SpeechRole {
     /// In-process: the shared [`InProcessSpeech`] warm stack over the local pool.
     Direct(Box<InProcessSpeech>),
     /// Forwarded: every speech-port call rides a running daemon's warm pool.

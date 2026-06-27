@@ -13,7 +13,7 @@ use speak::ports::presenter::{Presenter, Table};
 use super::args::ConfigAction;
 
 /// Run the `config` subcommand, emitting its RESULT through the Presenter.
-pub fn run(action: ConfigAction, cfg: &Config, presenter: &mut dyn Presenter) -> Result<()> {
+pub(crate) fn run(action: ConfigAction, cfg: &Config, presenter: &mut dyn Presenter) -> Result<()> {
     let path = paths::config_file();
     match action {
         ConfigAction::Path => presenter.line(&path.display().to_string()),

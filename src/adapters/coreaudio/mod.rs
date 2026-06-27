@@ -1,11 +1,11 @@
 //! `coreaudio` driven adapter (T034 / T035): native macOS audio I/O behind the
 //! [`crate::ports::AudioSink`] / [`crate::ports::AudioSource`] ports.
 //!
-//! This is the ONLY place the `objc2` / AVFAudio / CoreAudio-HAL crates appear
+//! This is the ONLY place the `objc2` / `AVFAudio` / CoreAudio-HAL crates appear
 //! (ADR-0001 / ADR-0003 / ADR-0007). [`CoreAudio`] plays a decoded
 //! [`PcmBuffer`] through the native `AVAudioEngine` mixer on the default device
 //! or fans one decode out to N pinned `AudioDeviceID`s (FR-11), captures the
-//! microphone, and enumerates input/output devices via the CoreAudio HAL
+//! microphone, and enumerates input/output devices via the `CoreAudio` HAL
 //! (`kAudioHardwarePropertyDevices`, FR-10). The macOS backend lives behind a
 //! cfg gate; other platforms get a clear-error stub. No `objc2` type crosses the
 //! port boundary.
@@ -28,7 +28,7 @@ use crate::ports::audio::{AudioDevice, AudioDeviceId, AudioSink, AudioSource};
 
 pub use backend::{capture, enumerate, play, play_to};
 
-/// Native CoreAudio [`AudioSink`] + [`AudioSource`] Adapter (Factory: `new`).
+/// Native `CoreAudio` [`AudioSink`] + [`AudioSource`] Adapter (Factory: `new`).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CoreAudio;
 
@@ -50,17 +50,17 @@ pub fn capture_chunk(device: u32, secs: f64) -> Result<PcmBuffer> {
 impl AudioSink for CoreAudio {
     async fn play(&self, pcm: &PcmBuffer, volume: f32) -> Result<()> {
         let pcm = pcm.clone();
-        tokio::task::spawn_blocking(move || backend::play(&pcm, volume)).await?
+        tokio::task::spawn_blocking(move || play(&pcm, volume)).await?
     }
 
     async fn play_to(&self, pcm: &PcmBuffer, devices: &[AudioDeviceId], volume: f32) -> Result<()> {
         let pcm = pcm.clone();
         let devices = devices.to_vec();
-        tokio::task::spawn_blocking(move || backend::play_to(&pcm, &devices, volume)).await?
+        tokio::task::spawn_blocking(move || play_to(&pcm, &devices, volume)).await?
     }
 
     fn outputs(&self) -> Result<Vec<AudioDevice>> {
-        Ok(backend::enumerate()?
+        Ok(enumerate()?
             .into_iter()
             .filter(AudioDevice::is_output)
             .collect())
@@ -69,11 +69,11 @@ impl AudioSink for CoreAudio {
 
 impl AudioSource for CoreAudio {
     async fn capture(&self, device: Option<AudioDeviceId>, secs: f64) -> Result<PcmBuffer> {
-        tokio::task::spawn_blocking(move || backend::capture(device, secs)).await?
+        tokio::task::spawn_blocking(move || capture(device, secs)).await?
     }
 
     fn inputs(&self) -> Result<Vec<AudioDevice>> {
-        Ok(backend::enumerate()?
+        Ok(enumerate()?
             .into_iter()
             .filter(AudioDevice::is_input)
             .collect())

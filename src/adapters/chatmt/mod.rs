@@ -4,7 +4,7 @@
 //! The default [`Translator`] strategy (the `openai` adapter) only emits English
 //! via Whisper translate. For a non-English `--to` target this adapter transcribes
 //! the chunk with an injected [`Transcriber`], then translates the source text by
-//! POSTing to `{translate_url}/v1/chat/completions` with the system prompt
+//! `POSTing` to `{translate_url}/v1/chat/completions` with the system prompt
 //! `"Translate into <to>. Output only the translation."` and the configured
 //! `[http].translate_model` (FR-8). The composition root selects this strategy
 //! only when `[http].translate_url` is set; otherwise it degrades to the source

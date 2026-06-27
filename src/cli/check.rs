@@ -17,7 +17,7 @@ use super::AppFacade;
 
 /// Run the `health` subcommand: probe server health, models, and realtime
 /// capability through the `check`/`health` use case (FR-14).
-pub async fn health(facade: &AppFacade, presenter: &mut dyn Presenter) -> Result<()> {
+pub(crate) async fn health(facade: &AppFacade, presenter: &mut dyn Presenter) -> Result<()> {
     let outcome = facade.health().await?;
     let realtime = if outcome.realtime {
         "supported"
@@ -32,7 +32,7 @@ pub async fn health(facade: &AppFacade, presenter: &mut dyn Presenter) -> Result
 }
 
 /// Run the `check` subcommand: report host + local acceleration + paths.
-pub fn check(cfg: &Config, presenter: &mut dyn Presenter) -> Result<()> {
+pub(crate) fn check(cfg: &Config, presenter: &mut dyn Presenter) -> Result<()> {
     let report = accel::probe();
     let result = Report::titled("check")
         .entry("host", cfg.server.host.as_str())

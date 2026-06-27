@@ -76,7 +76,7 @@ pub struct RealtimeOptions {
 }
 
 /// The outcome of one processed chunk.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RealtimeStep {
     /// Source-language transcript (no-translate / echo modes).
     pub source_text: Option<String>,
@@ -96,7 +96,7 @@ pub enum FrameKind {
 }
 
 /// The result of pumping one SSE frame (the driving adapter prints / loops).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RealtimeEvent {
     /// Text to surface to the user.
     Text {

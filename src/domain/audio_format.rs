@@ -26,7 +26,7 @@ pub enum AudioFormat {
 }
 
 impl AudioFormat {
-    /// Parse the OpenAI `response_format` token (case-insensitive).
+    /// Parse the `OpenAI` `response_format` token (case-insensitive).
     pub fn parse(input: &str) -> Result<Self, DomainError> {
         Ok(match input.trim().to_ascii_lowercase().as_str() {
             "mp3" => Self::Mp3,

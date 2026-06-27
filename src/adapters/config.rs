@@ -272,8 +272,9 @@ pub struct Http {
     pub save_dir: Option<PathBuf>,
 }
 
-/// `[retry]` resilience policy — the TOML projection of the domain
-/// [`crate::domain::retry::RetryPolicy`] value object (FR-17, ADR-0004). Every
+/// `[retry]` resilience policy — TOML projection of the domain retry value object.
+///
+/// Maps to [`crate::domain::retry::RetryPolicy`] (FR-17, ADR-0004). Every
 /// field is env-overridable so there are no hardcoded magic numbers (FR-18).
 #[derive(Debug, Clone)]
 pub struct Retry {
@@ -619,6 +620,10 @@ impl Resolver {
         value
     }
 
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "builder finish keeps Result for API symmetry and forward-compatible validation"
+    )]
     fn finish(mut self) -> Result<Config> {
         let server = self.server();
         let tts = self.tts();
@@ -1289,7 +1294,9 @@ mod tests {
 
     /// Run `body` with `name` set to `value`, restoring the prior value after.
     fn with_env<T>(name: &str, value: &str, body: impl FnOnce() -> T) -> T {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let prev = std::env::var(name).ok();
         // TODO: Audit that the environment access only happens in single-threaded code.
         unsafe { std::env::set_var(name, value) };
@@ -1305,7 +1312,9 @@ mod tests {
 
     /// Run `body` with `name` guaranteed unset, restoring the prior value after.
     fn without_env<T>(name: &str, body: impl FnOnce() -> T) -> T {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let prev = std::env::var(name).ok();
         // TODO: Audit that the environment access only happens in single-threaded code.
         unsafe { std::env::remove_var(name) };
@@ -1322,7 +1331,9 @@ mod tests {
     /// Acquires `ENV_LOCK` exactly once — `without_env` is NOT reentrant (the std
     /// `Mutex` would deadlock), so multi-var scrubbing must take the lock once.
     fn without_envs<T>(names: &[&str], body: impl FnOnce() -> T) -> T {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let prev: Vec<(String, Option<String>)> = names
             .iter()
             .map(|n| ((*n).to_owned(), std::env::var(n).ok()))
@@ -1627,7 +1638,9 @@ mod tests {
     fn entries_catalog_covers_every_tunable_knob() {
         // `finish()` reads `SPEAK_*` env; serialise on the shared lock like the
         // other resolver tests. Keys are recorded regardless of env/file presence.
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let cfg = Resolver::new(GlobalFlags::default(), FileConfig::default())
             .finish()
             .unwrap();

@@ -21,7 +21,7 @@ use super::State;
 
 /// The watchdog's coarse health state, surfaced in `daemon status`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HealthState {
+pub(super) enum HealthState {
     /// The last probe succeeded.
     Healthy,
     /// At least one probe failed, but below the recovery threshold.
@@ -33,7 +33,7 @@ pub enum HealthState {
 impl HealthState {
     /// The lowercase wire token for status reports.
     #[must_use]
-    pub fn as_str(self) -> &'static str {
+    pub(super) fn as_str(self) -> &'static str {
         match self {
             Self::Healthy => "healthy",
             Self::Degraded => "degraded",
@@ -44,7 +44,7 @@ impl HealthState {
 
 /// The pure health state machine driven by probe outcomes (ADR-0010).
 #[derive(Debug)]
-pub struct Health {
+pub(super) struct Health {
     state: HealthState,
     threshold: u32,
     consecutive_failures: u32,
@@ -56,7 +56,7 @@ pub struct Health {
 impl Health {
     /// A fresh, healthy watchdog that recovers after `threshold` (>=1) failures.
     #[must_use]
-    pub fn new(threshold: u32) -> Self {
+    pub(super) fn new(threshold: u32) -> Self {
         Self {
             state: HealthState::Healthy,
             threshold: threshold.max(1),
@@ -69,7 +69,7 @@ impl Health {
 
     /// Record a successful probe at `now`; returns `true` when this success is a
     /// transition back to `Healthy` from a degraded/recovering state (worth a log).
-    pub fn record_success(&mut self, now: Instant) -> bool {
+    pub(super) fn record_success(&mut self, now: Instant) -> bool {
         let recovered = self.state != HealthState::Healthy;
         self.state = HealthState::Healthy;
         self.consecutive_failures = 0;
@@ -81,7 +81,7 @@ impl Health {
     /// failure count first reaches the threshold (the daemon should self-recover).
     /// The timestamp is accepted for clock-injection symmetry with
     /// [`record_success`](Self::record_success) (only the last success time is kept).
-    pub fn record_failure(&mut self, err: String, _now: Instant) -> bool {
+    pub(super) fn record_failure(&mut self, err: String, _now: Instant) -> bool {
         self.consecutive_failures += 1;
         self.last_err = Some(err);
         if self.consecutive_failures >= self.threshold {
@@ -95,37 +95,37 @@ impl Health {
     }
 
     /// Note that a self-recovery rebuild completed (counter for status).
-    pub fn note_recovery(&mut self) {
+    pub(super) fn note_recovery(&mut self) {
         self.recoveries += 1;
     }
 
     /// The current coarse state.
     #[must_use]
-    pub fn state(&self) -> HealthState {
+    pub(super) fn state(&self) -> HealthState {
         self.state
     }
 
     /// Consecutive failed probes since the last success.
     #[must_use]
-    pub fn consecutive_failures(&self) -> u32 {
+    pub(super) fn consecutive_failures(&self) -> u32 {
         self.consecutive_failures
     }
 
     /// Seconds since the last successful probe, or `None` if never healthy.
     #[must_use]
-    pub fn last_ok_elapsed_secs(&self) -> Option<u64> {
+    pub(super) fn last_ok_elapsed_secs(&self) -> Option<u64> {
         self.last_ok.map(|t| t.elapsed().as_secs())
     }
 
     /// The most recent probe error message, if any.
     #[must_use]
-    pub fn last_error(&self) -> Option<&str> {
+    pub(super) fn last_error(&self) -> Option<&str> {
         self.last_err.as_deref()
     }
 
     /// How many self-recovery rebuilds the daemon has performed.
     #[must_use]
-    pub fn recoveries(&self) -> u64 {
+    pub(super) fn recoveries(&self) -> u64 {
         self.recoveries
     }
 }
@@ -228,7 +228,7 @@ async fn reprobe_capability(state: &Arc<State>, facade: &super::DaemonFacade) {
     let timeout = Duration::from_secs(state.cfg.daemon.health_timeout);
     match tokio::time::timeout(timeout, facade.supports_realtime()).await {
         Ok(Ok(realtime)) => {
-            tracing::info!(realtime, "realtime capability re-probed after recovery")
+            tracing::info!(realtime, "realtime capability re-probed after recovery");
         }
         Ok(Err(e)) => tracing::warn!("capability re-probe failed: {e:#}"),
         Err(_) => tracing::warn!("capability re-probe timed out"),

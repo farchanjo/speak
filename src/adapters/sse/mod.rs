@@ -1,7 +1,7 @@
 //! `sse` driven adapter (T036): the [`RealtimeStream`] port over the server's
 //! `POST /v1/realtime/translate` Server-Sent Events endpoint (ADR-0004).
 //!
-//! A captured audio chunk is POSTed as multipart (`file` + `to`/`translate`/
+//! A captured audio chunk is `POSTed` as multipart (`file` + `to`/`translate`/
 //! `voice`/`instruct`/`language`/`format`) over the shared warm `reqwest` pool;
 //! the `text/event-stream` response is consumed with `eventsource-stream` and each
 //! `event: <TYPE>\ndata: <json>` frame is decoded ([`frame`]) into a typed
