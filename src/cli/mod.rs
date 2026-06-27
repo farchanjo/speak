@@ -15,6 +15,7 @@ use anyhow::Result;
 use speak::adapters::coreaudio::CoreAudio;
 use speak::adapters::libav::LibavCodec;
 use speak::adapters::openai::OpenAiAdapter;
+use speak::adapters::retry::Retry;
 use speak::application::SpeakFacade;
 use speak::domain::voice::{StandardVoice, VoiceClone, VoiceMode};
 use speak::domain::voice_design::VoiceDesign;
@@ -32,9 +33,10 @@ pub mod translate;
 pub mod voices;
 
 /// The concrete application Facade the composition root injects into every
-/// handler: the `openai` speech adapter, the `coreaudio` audio adapter, and the
-/// `libav` codec adapter wired together (ADR-0003 / T054).
-pub type AppFacade = SpeakFacade<OpenAiAdapter, CoreAudio, LibavCodec>;
+/// handler: the `openai` speech adapter wrapped in its port-preserving
+/// [`Retry`] decorator (T046), the `coreaudio` audio adapter, and the `libav`
+/// codec adapter wired together (ADR-0003 / T054).
+pub type AppFacade = SpeakFacade<Retry<OpenAiAdapter>, CoreAudio, LibavCodec>;
 
 /// Extract a multipart-friendly basename from `path`, with a stable fallback.
 #[must_use]

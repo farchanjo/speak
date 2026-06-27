@@ -20,6 +20,7 @@ use clap::Parser;
 use speak::adapters::coreaudio::CoreAudio;
 use speak::adapters::libav::{DecodeOptions, LibavCodec};
 use speak::adapters::openai::OpenAiAdapter;
+use speak::adapters::retry::Retry;
 use speak::application::SpeakFacade;
 use speak::config::Config;
 use speak::{daemon, logging};
@@ -67,13 +68,14 @@ impl<'a> Factory<'a> {
     /// pool, the `coreaudio` I/O adapter, and the `libav` codec adapter).
     ///
     /// `native` routes `say` through the server's `/tts` endpoint; every other
-    /// command leaves it at the configured `[tts].native` default. The `[retry]`
-    /// policy resolves in `self.cfg.retry.policy`; wrapping each network port in
-    /// its port-preserving retry decorator is the pending `[adapter:retry]` task
-    /// (T046) — the Facade is already generic over the ports, so a decorated
-    /// adapter drops in here without touching the use cases.
+    /// command leaves it at the configured `[tts].native` default. The `openai`
+    /// adapter is wrapped in its port-preserving [`Retry`] decorator (T046),
+    /// resolved from `[retry]` (`self.cfg.retry.policy` + `jitter_seed`); because
+    /// it implements the SAME ports it drops straight into the Facade without
+    /// touching the use cases.
     fn facade(&self, native: bool) -> Result<AppFacade> {
         let speech = OpenAiAdapter::new(self.cfg)?.with_native(native || self.cfg.tts.native);
+        let speech = Retry::new(speech, self.cfg.retry.policy, self.cfg.retry.jitter_seed);
         let codec = LibavCodec::new(DecodeOptions {
             threads: self.cfg.ffmpeg.threads,
             log_level: self.cfg.ffmpeg.log_level.clone(),

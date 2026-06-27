@@ -1,7 +1,7 @@
 //! The shared `openai` adapter transport (T030): one warm `async-openai` client
 //! plus the same `reqwest` pool for the requests the typed API cannot express.
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use async_openai::Client;
 use async_openai::config::OpenAIConfig;
 use reqwest::RequestBuilder;
@@ -75,6 +75,11 @@ impl OpenAiAdapter {
     }
 
     /// Send `req` (with auth) and fail on any non-2xx status, surfacing the body.
+    ///
+    /// A non-2xx response is returned as a typed
+    /// [`HttpStatusError`](crate::adapters::retry::HttpStatusError) so the retry
+    /// decorator can classify `5xx`/`429` after the error crosses the `anyhow`
+    /// boundary; the `Display` text is unchanged.
     pub(super) async fn send_ok(&self, req: RequestBuilder) -> Result<reqwest::Response> {
         let resp = self.auth(req).send().await?;
         let status = resp.status();
@@ -82,7 +87,7 @@ impl OpenAiAdapter {
             return Ok(resp);
         }
         let body = resp.text().await.unwrap_or_default();
-        bail!("server returned {}: {}", status.as_u16(), body.trim());
+        Err(crate::adapters::retry::HttpStatusError::new(status.as_u16(), body).into())
     }
 }
 

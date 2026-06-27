@@ -223,7 +223,7 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   `[http].translate_model` (non-OpenAI chat-MT endpoint), reusing the warm pool;
   selected when `--to` is non-English and `translate_url` is set, else degrade
   to the source transcript with a clear notice (FR-8 / ADR-0004).
-- [ ] T046 `[adapter:retry]` transport-agnostic retry **decorator(s)**: for each
+- [x] T046 `[adapter:retry]` transport-agnostic retry **decorator(s)**: for each
   wrapped driven port (`Synthesizer`, `Transcriber`, `Translator`,
   `VoiceRepository`, `RealtimeStream`, `ServerProbe`) a generic
   decorator that **implements that same port** (so it is substitutable for the
@@ -236,9 +236,26 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   application **Facade** surface (`CommandTransport`, ADR-0005), retrying the
   socket connect/forward under the same Strategy.
   Configured from `[retry]`, injected at the composition root (FR-17 / ADR-0004).
-  (Partial: the seeded backoff loop now lives in the reqwest `SpeechClient` and
-  honors the full `retry_on` classification incl. 5xx/429 responses; extraction
-  into a generic port-preserving decorator across all driven ports is pending.)
+  (Done: `src/adapters/retry/` holds the generic, port-preserving `Retry<Inner,
+  P>` decorator — `P` is the `ports::RetryPolicy` Strategy (defaulting to the pure
+  `domain::RetryPolicy` VO) — that re-implements `Synthesizer`/`Transcriber`/
+  `Translator`/`VoiceRepository`/`ServerProbe` over one bounded `run()` loop, so
+  it is a drop-in substitute for the concrete `OpenAiAdapter`. `classify` maps a
+  failed call's `anyhow::Error` to the pure `ErrorKind` (connect/timeout/5xx/429)
+  the policy understands — the openai adapter now tags non-2xx responses with a
+  typed `HttpStatusError` so the status survives the `anyhow` boundary, and a
+  `classify_transport!` macro classifies BOTH linked `reqwest` majors (the crate's
+  own + the one inside `async-openai`, via `OpenAIError::Reqwest`/`ApiError`). The
+  SSE `RealtimeStream` decorator is the bounded `ReconnectingStream<F, P>`: it
+  rebuilds a dropped stream under the same policy (budget resets on progress, a
+  normal `Ok(None)` never reconnects) — landed + unit-tested over a scripted
+  factory, ready to wrap the T036 eventsource adapter the moment it lands. Every
+  tunable comes from `[retry]` (env + default, FR-18); the Factory wraps the
+  warm `OpenAiAdapter` in `Retry::new(.., cfg.retry.policy, cfg.retry.jitter_seed)`
+  so `AppFacade`'s speech role is now `Retry<OpenAiAdapter>` without touching any
+  use case. The CommandTransport/daemon-forward retry rides the T053
+  daemon-forward path. 11 unit tests: classification, retry-until-success,
+  give-up-after-max, immediate-fail-on-non-retryable, reconnect, no-reconnect.)
 - [x] T048 `[adapter:presenter]` `Presenter` output adapters (ADR-0009): a
   `console` renderer (coloured, aligned human text; honours `--quiet` suppression
   and `--color`/`NO_COLOR`) and a `json` renderer (machine-readable per FR-16),
