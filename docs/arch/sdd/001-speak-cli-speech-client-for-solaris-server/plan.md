@@ -214,6 +214,10 @@ frames drive the loop directly; otherwise the chunked path runs. Loops to Ctrl-C
   the full `#Config` catalog mirroring ADR-0006 (`config.cue`, including the
   `#Retry` and `#Http` sections); `RealtimeFrame` SSE DTO included.
 - `docs/arch/specs/features/*.feature` — executable acceptance scenarios.
-- `docs/arch/adr/0001..0009` — the binding decision record (ADR-0008 records
+- `docs/arch/adr/0001..0010` — the binding decision record (ADR-0008 records
   the edition-2021 deferral; ADR-0009 records the `Presenter` output port +
-  `tracing` diagnostics discipline).
+  `tracing` diagnostics discipline; ADR-0010 records the daemon single-instance
+  PID-file lock, the upstream health watchdog with self-recovery, and the daemon
+  Facade holding the same target-routed in-process speech composite as the CLI so
+  a forwarded non-English translate honours `--to`, plus `translate --format
+  srt|vtt` subtitle output from the transcription segments).

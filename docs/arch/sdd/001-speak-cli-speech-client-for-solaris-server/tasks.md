@@ -574,6 +574,43 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   `adapters/genparams` (consumed by the openai speech body + daemon DTO). A
   `grep` over `src/domain` for `async_openai|ffmpeg|objc2|reqwest|serde_json|
   anyhow` is empty. All four gates stay green; `speckit validate`/`analyze` clean.
+- [x] T065 `[adapter:daemon]` Single-instance PID file + replace-previous
+  lifecycle (ADR-0010, FR-12). `adapters/daemon/lifecycle.rs`: pidfile at
+  `[daemon].pidfile` (`SPEAK_DAEMON_PIDFILE`, default `~/.speak/speak.pid`),
+  written ATOMICALLY (temp + rename) once the socket is bound and removed on
+  graceful shutdown (SIGINT/SIGTERM). On start, reconcile any previous instance:
+  a PID that is ALIVE and answers on the socket is replaced (SIGTERM, wait up to
+  `[daemon].kill_grace_ms` = `SPEAK_DAEMON_KILL_GRACE_MS` default 3000, then
+  SIGKILL); a live-but-silent PID is left untouched (PID reuse); a dead/absent
+  PID or an orphan socket is cleaned. `daemon stop` SIGTERMs the pidfile PID and
+  cleans up; `daemon restart` is a fresh replacing start; `daemon status` reports
+  through the Presenter (`--json` too). Signals via `nix` (no `unsafe`,
+  `cfg(unix)`). Unit-tested (pidfile round-trip, liveness, terminate).
+- [x] T066 `[adapter:daemon]` Upstream health watchdog + self-recovery
+  (ADR-0010). `adapters/daemon/watchdog.rs`: a background task probes `/health`
+  through the warm Facade's `ServerProbe` every `SPEAK_DAEMON_HEALTH_INTERVAL`
+  (default 15s, 0 = off) with a `SPEAK_HEALTH_TIMEOUT` (default 5s) bound. A pure
+  `Health` state machine (`Healthy -> Degraded -> Recovering -> Healthy`)
+  recovers after `SPEAK_DAEMON_HEALTH_FAILS` (default 3) consecutive failures:
+  rebuild the warm `openai`/`reqwest` pool + re-run the realtime capability probe,
+  hot-swap the Facade (held behind `Mutex<Arc<…>>`, never locked across `.await`),
+  and back off through `[retry]` while degraded. Counters surface in
+  `daemon status`. State machine unit-tested with scripted outcomes + injected
+  timestamps (no real sleeps).
+- [x] T067 `[adapter:inproc]` Extract the in-process warm speech stack into one
+  reusable composite `InProcessSpeech` (`adapters/inproc.rs`): retry-wrapped
+  `openai` + optional chat-MT, `translate` routed by target language. Shared by
+  the CLI `SpeechRole::Direct` AND the daemon's warm Facade (ADR-0010), so a
+  forwarded non-English `translate`/`realtime` honours `--to` instead of falling
+  back to Whisper-English. The target already crosses the wire; the domain stays
+  serde-free. Removes the duplicated routing in `cli/speech.rs`.
+- [x] T068 `[cli]` `translate <file> --format srt|vtt` emits timestamped subtitle
+  cues built from the server's transcription SEGMENTS (the
+  `/v1/audio/transcriptions` endpoint emits SRT/VTT), routed through the
+  `Transcriber` port (which already carries the format) — honouring the `--format`
+  arg that was parsed but ignored for `srt`/`vtt` (FR-7, ADR-0010). Text formats
+  keep the translate path. Caveat: cues are SOURCE-language; `--to` applies to
+  text only. Live-verified (`tests/integration.rs`).
 
 ## Dependencies
 

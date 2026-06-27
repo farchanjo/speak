@@ -17,20 +17,18 @@ mod cli;
 use anyhow::Result;
 use clap::Parser;
 
-use speak::adapters::chatmt::ChatMtTranslator;
 use speak::adapters::config::Config;
 use speak::adapters::coreaudio::CoreAudio;
 use speak::adapters::daemon::{self, DaemonSpeechAdapter};
+use speak::adapters::inproc::InProcessSpeech;
 use speak::adapters::libav::{DecodeOptions, LibavCodec};
-use speak::adapters::openai::OpenAiAdapter;
-use speak::adapters::retry::Retry;
 use speak::adapters::sse::SseRealtimeClient;
 use speak::application::SpeakFacade;
 use speak::logging;
 
 use cli::AppFacade;
 use cli::args::{Cli, Command, GlobalArgs};
-use cli::speech::{DirectSpeech, SpeechRole};
+use cli::speech::SpeechRole;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -87,6 +85,11 @@ impl<'a> Factory<'a> {
     }
 
     /// Pick the speech role: forward to a running daemon, else go in-process.
+    ///
+    /// The in-process arm is the shared [`InProcessSpeech`] warm stack (ADR-0010):
+    /// the retry-wrapped `openai` adapter plus the optional chat-MT translate
+    /// Strategy, with `translate` routed by target language — the SAME composite
+    /// the daemon's warm Facade holds, so behaviour is identical either way.
     async fn speech_role(&self, native: bool) -> Result<SpeechRole> {
         let socket = &self.cfg.daemon.socket;
         if daemon::is_running(socket).await {
@@ -98,22 +101,9 @@ impl<'a> Factory<'a> {
             )));
         }
         tracing::debug!("speech role: in-process");
-        let openai = OpenAiAdapter::new(self.cfg)?.with_native(native || self.cfg.tts.native);
-        let speech = Retry::new(openai, self.cfg.retry.policy, self.cfg.retry.jitter_seed);
-        let chatmt = self.chat_mt()?;
-        Ok(SpeechRole::Direct(Box::new(DirectSpeech {
-            speech,
-            chatmt,
-        })))
-    }
-
-    /// Build the chat-MT translate Strategy when `[http].translate_url` is set
-    /// (T039); its own `openai` adapter transcribes the chunk before chat-MT.
-    fn chat_mt(&self) -> Result<Option<ChatMtTranslator<OpenAiAdapter>>> {
-        if self.cfg.http.translate_url.is_none() {
-            return Ok(None);
-        }
-        ChatMtTranslator::new(OpenAiAdapter::new(self.cfg)?, self.cfg)
+        Ok(SpeechRole::Direct(Box::new(InProcessSpeech::new(
+            self.cfg, native,
+        )?)))
     }
 }
 
@@ -162,7 +152,7 @@ async fn dispatch(cli: Cli, cfg: &Config) -> Result<()> {
         Command::Voices { action } => {
             cli::voices::run(&factory.facade(false).await?, action, out).await
         }
-        Command::Daemon(args) => daemon::run(cfg, args).await,
+        Command::Daemon(args) => daemon::run(cfg, args, out).await,
         Command::Completions { .. } => Ok(()),
     }
 }

@@ -17,9 +17,12 @@
 //! when unused). `daemon stop` / `daemon status` are control ops handled without
 //! the Facade.
 
+mod lifecycle;
+mod watchdog;
+
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
@@ -31,9 +34,9 @@ use tokio::sync::Notify;
 
 use crate::adapters::config::Config;
 use crate::adapters::headless::HeadlessAudio;
+use crate::adapters::inproc::InProcessSpeech;
 use crate::adapters::libav::{DecodeOptions, LibavCodec};
-use crate::adapters::openai::OpenAiAdapter;
-use crate::adapters::retry::{Retry, jitter_entropy};
+use crate::adapters::retry::jitter_entropy;
 use crate::application::{SayOptions, SpeakFacade};
 use crate::domain::audio_format::AudioFormat;
 use crate::domain::language::Language;
@@ -43,23 +46,29 @@ use crate::domain::voice::{StandardVoice, Voice, VoiceClone, VoiceMode};
 use crate::domain::voice_design::VoiceDesign;
 use crate::ports::audio::AudioSink;
 use crate::ports::codec::AudioDecoder;
+use crate::ports::presenter::{Presenter, Report};
 use crate::ports::probe::ServerProbe;
 use crate::ports::synthesizer::{SynthesizedAudio, Synthesizer};
 use crate::ports::transcriber::{TranscribeRequest, Transcriber};
 use crate::ports::translator::Translator;
 use crate::ports::voice::VoiceRepository;
 
-/// The daemon's concrete warm Facade: the retry-wrapped `openai` adapter, the
+use watchdog::Health;
+
+/// The daemon's concrete warm Facade: the in-process warm speech stack (ADR-0010,
+/// so a forwarded non-English `translate`/`realtime` honours `--to`), the
 /// headless audio role, and the `libav` codec.
-type DaemonFacade = SpeakFacade<Retry<OpenAiAdapter>, HeadlessAudio, LibavCodec>;
+type DaemonFacade = SpeakFacade<InProcessSpeech, HeadlessAudio, LibavCodec>;
 
 /// `daemon` subcommands (absent => start the server).
 #[derive(clap::Subcommand, Debug)]
 pub enum DaemonCmd {
-    /// Stop a running daemon.
+    /// Stop a running daemon (SIGTERM the pidfile PID, then clean up).
     Stop,
-    /// Print daemon status JSON.
+    /// Report daemon status (running, pid, uptime, upstream health, socket).
     Status,
+    /// Stop a running daemon if present, then start a fresh one.
+    Restart,
 }
 
 /// `daemon` arguments.
@@ -240,12 +249,13 @@ impl VoiceDto {
     }
 }
 
-/// Dispatch `daemon` subcommands.
-pub async fn run(cfg: &Config, args: DaemonArgs) -> Result<()> {
+/// Dispatch `daemon` subcommands, rendering control results through the Presenter.
+pub async fn run(cfg: &Config, args: DaemonArgs, presenter: &mut dyn Presenter) -> Result<()> {
     match args.action {
         None => start(cfg, args.foreground).await,
-        Some(DaemonCmd::Stop) => stop(cfg).await,
-        Some(DaemonCmd::Status) => status(cfg).await,
+        Some(DaemonCmd::Stop) => stop(cfg, presenter).await,
+        Some(DaemonCmd::Status) => status(cfg, presenter).await,
+        Some(DaemonCmd::Restart) => restart(cfg).await,
     }
 }
 
@@ -440,20 +450,72 @@ async fn forward(socket: &Path, request: &Request, payload: &[u8]) -> Result<(Re
 // --------------------------------------------------------------------------
 
 struct State {
-    facade: DaemonFacade,
+    /// The warm Facade behind a lock so the health watchdog can hot-swap a freshly
+    /// rebuilt client pool on recovery (ADR-0010) without an `Arc<Mutex>` held
+    /// across `.await`: handlers clone the inner `Arc` under a momentary guard.
+    facade: Mutex<Arc<DaemonFacade>>,
+    /// Resolved config, kept for the watchdog's recovery rebuild + knobs.
+    cfg: Config,
     started: Instant,
     requests: AtomicU64,
     socket: PathBuf,
+    pidfile: PathBuf,
     host: String,
     idle_timeout: u64,
     shutdown: Notify,
-    last_active: std::sync::Mutex<Instant>,
+    last_active: Mutex<Instant>,
+    health: Mutex<Health>,
 }
 
-/// Build the daemon's warm Facade (retry-wrapped openai + headless audio + libav).
+impl State {
+    /// Build the shared daemon state, including the warm Facade + watchdog seed.
+    fn new(cfg: &Config, socket: PathBuf, pidfile: PathBuf) -> Result<Self> {
+        Ok(Self {
+            facade: Mutex::new(Arc::new(build_facade(cfg)?)),
+            cfg: cfg.clone(),
+            started: Instant::now(),
+            requests: AtomicU64::new(0),
+            socket,
+            pidfile,
+            host: cfg.server.host.clone(),
+            idle_timeout: cfg.daemon.idle_timeout,
+            shutdown: Notify::new(),
+            last_active: Mutex::new(Instant::now()),
+            health: Mutex::new(Health::new(cfg.daemon.health_fails)),
+        })
+    }
+
+    /// Clone the current warm Facade `Arc` (guard released immediately).
+    fn facade(&self) -> Arc<DaemonFacade> {
+        match self.facade.lock() {
+            Ok(g) => Arc::clone(&g),
+            Err(p) => Arc::clone(&p.into_inner()),
+        }
+    }
+
+    /// Hot-swap the warm Facade after a recovery rebuild.
+    fn set_facade(&self, facade: Arc<DaemonFacade>) {
+        match self.facade.lock() {
+            Ok(mut g) => *g = facade,
+            Err(p) => *p.into_inner() = facade,
+        }
+    }
+
+    /// Lock the health watchdog (recovering a poisoned lock).
+    fn health_lock(&self) -> std::sync::MutexGuard<'_, Health> {
+        self.health.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// The current consecutive-failure count (for the watchdog backoff).
+    fn health_failures(&self) -> u32 {
+        self.health_lock().consecutive_failures()
+    }
+}
+
+/// Build the daemon's warm Facade (in-process warm speech stack + headless audio
+/// + libav). The watchdog rebuilds a fresh one on recovery (ADR-0010).
 fn build_facade(cfg: &Config) -> Result<DaemonFacade> {
-    let speech = OpenAiAdapter::new(cfg)?;
-    let speech = Retry::new(speech, cfg.retry.policy, cfg.retry.jitter_seed);
+    let speech = InProcessSpeech::new(cfg, false)?;
     let codec = LibavCodec::new(DecodeOptions {
         threads: cfg.ffmpeg.threads,
         log_level: cfg.ffmpeg.log_level.clone(),
@@ -463,46 +525,54 @@ fn build_facade(cfg: &Config) -> Result<DaemonFacade> {
 
 async fn start(cfg: &Config, _foreground: bool) -> Result<()> {
     let socket = cfg.daemon.socket.clone();
-    if is_running(&socket).await {
-        bail!("daemon already running at {}", socket.display());
+    let pidfile = cfg.daemon.pidfile.clone();
+    ensure_parent(&socket)?;
+    ensure_parent(&pidfile)?;
+    // Single-instance: kill/clean any previous instance, then take over (ADR-0010).
+    let grace = Duration::from_millis(cfg.daemon.kill_grace_ms);
+    lifecycle::replace_previous(&socket, &pidfile, grace).await?;
+    let listener =
+        UnixListener::bind(&socket).with_context(|| format!("binding {}", socket.display()))?;
+    lifecycle::write_pid_atomic(&pidfile, std::process::id())?;
+    let state = Arc::new(State::new(cfg, socket.clone(), pidfile.clone())?);
+    tracing::info!(socket = %socket.display(), host = %state.host, pid = std::process::id(), "daemon listening");
+    if !cfg.general.quiet {
+        eprintln!(
+            "speak daemon listening at {} (host {}, pid {})",
+            socket.display(),
+            state.host,
+            std::process::id()
+        );
     }
-    if let Some(parent) = socket.parent() {
+    watchdog::spawn(&state);
+    accept_loop(&listener, &state).await;
+    // Clean exit: never leave a stale lock or socket behind (ADR-0010).
+    lifecycle::remove(&pidfile);
+    let _ = std::fs::remove_file(&socket);
+    Ok(())
+}
+
+/// Ensure `path`'s parent directory exists (creating it when missing).
+fn ensure_parent(path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating {}", parent.display()))?;
     }
-    let _ = std::fs::remove_file(&socket);
-    let listener =
-        UnixListener::bind(&socket).with_context(|| format!("binding {}", socket.display()))?;
-    let state = Arc::new(State {
-        facade: build_facade(cfg)?,
-        started: Instant::now(),
-        requests: AtomicU64::new(0),
-        socket: socket.clone(),
-        host: cfg.server.host.clone(),
-        idle_timeout: cfg.daemon.idle_timeout,
-        shutdown: Notify::new(),
-        last_active: std::sync::Mutex::new(Instant::now()),
-    });
-    tracing::info!(socket = %socket.display(), host = %state.host, "daemon listening");
-    if !cfg.general.quiet {
-        eprintln!(
-            "speak daemon listening at {} (host {})",
-            socket.display(),
-            state.host
-        );
-    }
-    accept_loop(&listener, &state).await;
-    let _ = std::fs::remove_file(&socket);
     Ok(())
 }
 
 async fn accept_loop(listener: &UnixListener, state: &Arc<State>) {
     spawn_idle_watch(state);
+    let mut sigterm = sigterm_stream();
     loop {
         tokio::select! {
             biased;
             () = state.shutdown.notified() => break,
             _ = tokio::signal::ctrl_c() => break,
+            () = wait_sigterm(&mut sigterm) => {
+                tracing::info!("daemon received SIGTERM; shutting down");
+                break;
+            }
             accepted = listener.accept() => {
                 if let Ok((stream, _)) = accepted {
                     let state = Arc::clone(state);
@@ -515,6 +585,38 @@ async fn accept_loop(listener: &UnixListener, state: &Arc<State>) {
             }
         }
     }
+}
+
+/// A SIGTERM listener (Unix) so an operator-initiated stop unwinds gracefully and
+/// removes the pidfile + socket; `None` when the handler cannot be installed.
+#[cfg(unix)]
+fn sigterm_stream() -> Option<tokio::signal::unix::Signal> {
+    match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+        Ok(sig) => Some(sig),
+        Err(e) => {
+            tracing::warn!("SIGTERM handler unavailable: {e}");
+            None
+        }
+    }
+}
+
+/// Await one SIGTERM (or pend forever when no handler is installed).
+#[cfg(unix)]
+async fn wait_sigterm(sigterm: &mut Option<tokio::signal::unix::Signal>) {
+    match sigterm {
+        Some(sig) => {
+            sig.recv().await;
+        }
+        None => std::future::pending::<()>().await,
+    }
+}
+
+#[cfg(not(unix))]
+fn sigterm_stream() {}
+
+#[cfg(not(unix))]
+async fn wait_sigterm(_sigterm: &mut ()) {
+    std::future::pending::<()>().await
 }
 
 fn spawn_idle_watch(state: &Arc<State>) {
@@ -555,16 +657,15 @@ async fn serve(mut stream: UnixStream, state: &Arc<State>) -> Result<()> {
         }
         other => {
             state.requests.fetch_add(1, Ordering::Relaxed);
-            let (reply, body) = dispatch(other, payload, &state.facade)
-                .await
-                .unwrap_or_else(|e| {
-                    (
-                        Reply::Error {
-                            message: format!("{e:#}"),
-                        },
-                        Vec::new(),
-                    )
-                });
+            let facade = state.facade();
+            let (reply, body) = dispatch(other, payload, &facade).await.unwrap_or_else(|e| {
+                (
+                    Reply::Error {
+                        message: format!("{e:#}"),
+                    },
+                    Vec::new(),
+                )
+            });
             write_reply(&mut stream, &reply, &body).await?;
         }
     }
@@ -661,12 +762,19 @@ where
 }
 
 fn status_body(state: &State) -> Value {
+    let health = state.health_lock();
     json!({
         "pid": std::process::id(),
         "uptime_secs": state.started.elapsed().as_secs(),
         "requests": state.requests.load(Ordering::Relaxed),
         "socket": state.socket.display().to_string(),
+        "pidfile": state.pidfile.display().to_string(),
         "host": state.host,
+        "health": health.state().as_str(),
+        "health_failures": health.consecutive_failures(),
+        "health_last_ok_secs": health.last_ok_elapsed_secs(),
+        "health_last_error": health.last_error(),
+        "recoveries": health.recoveries(),
     })
 }
 
@@ -675,36 +783,94 @@ async fn write_reply(stream: &mut UnixStream, reply: &Reply, body: &[u8]) -> Res
     write_frame(stream, body).await
 }
 
-async fn stop(cfg: &Config) -> Result<()> {
+/// `daemon stop`: SIGTERM the pidfile PID (waiting out the grace) or stop an
+/// orphan over its socket, then report through the Presenter.
+async fn stop(cfg: &Config, presenter: &mut dyn Presenter) -> Result<()> {
     let socket = &cfg.daemon.socket;
-    if !is_running(socket).await {
-        println!("no daemon running at {}", socket.display());
-        return Ok(());
-    }
-    forward(socket, &Request::Stop, &[]).await?;
-    println!("stopped daemon at {}", socket.display());
-    Ok(())
+    let pidfile = &cfg.daemon.pidfile;
+    let grace = Duration::from_millis(cfg.daemon.kill_grace_ms);
+    let stopped = stop_running(socket, pidfile, grace).await?;
+    let report = Report::titled("daemon")
+        .entry("action", "stop")
+        .entry("stopped", stopped.to_string())
+        .entry("socket", socket.display().to_string())
+        .entry("pidfile", pidfile.display().to_string());
+    presenter.report(&report)
 }
 
-async fn status(cfg: &Config) -> Result<()> {
-    let socket = &cfg.daemon.socket;
-    if !is_running(socket).await {
-        println!(
-            "{}",
-            json!({"running": false, "socket": socket.display().to_string()})
-        );
-        return Ok(());
+/// `daemon restart`: start() already replaces a running previous instance
+/// (ADR-0010), so a restart is a fresh start that supersedes whatever is running.
+async fn restart(cfg: &Config) -> Result<()> {
+    start(cfg, false).await
+}
+
+/// Stop a running daemon: SIGTERM the pidfile PID (waiting out `grace`), else fall
+/// back to a socket `Stop` for an orphan. Returns whether one was stopped.
+async fn stop_running(socket: &Path, pidfile: &Path, grace: Duration) -> Result<bool> {
+    if let Some(pid) = lifecycle::read_pid(pidfile) {
+        if lifecycle::is_alive(pid) {
+            lifecycle::terminate_and_wait(pid, grace).await?;
+            lifecycle::remove(pidfile);
+            let _ = std::fs::remove_file(socket);
+            return Ok(true);
+        }
+        lifecycle::remove(pidfile);
     }
-    let mut value = match forward(socket, &Request::Status, &[]).await?.0 {
+    if is_running(socket).await {
+        let _ = stop_over_socket(socket).await;
+        let _ = std::fs::remove_file(socket);
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+/// Forward a `Stop` control op to a daemon over its socket (orphan fallback).
+pub(super) async fn stop_over_socket(socket: &Path) -> Result<()> {
+    forward(socket, &Request::Stop, &[]).await.map(|_| ())
+}
+
+/// `daemon status`: report running/not + pid + uptime + upstream health + socket
+/// through the Presenter (Report; `--json` renders the same structure).
+async fn status(cfg: &Config, presenter: &mut dyn Presenter) -> Result<()> {
+    let socket = &cfg.daemon.socket;
+    let pidfile = &cfg.daemon.pidfile;
+    if !is_running(socket).await {
+        return presenter.report(&status_report(false, socket, pidfile, None));
+    }
+    let body = match forward(socket, &Request::Status, &[]).await?.0 {
         Reply::Status { status } => status,
         Reply::Error { message } => bail!("daemon error: {message}"),
-        _ => json!({}),
+        other => return Err(unexpected(&other)),
     };
-    if let Some(map) = value.as_object_mut() {
-        map.insert("running".into(), json!(true));
+    presenter.report(&status_report(true, socket, pidfile, Some(&body)))
+}
+
+/// Build the `daemon status`/`stop` Report from the running daemon's status body.
+fn status_report(running: bool, socket: &Path, pidfile: &Path, body: Option<&Value>) -> Report {
+    let mut report = Report::titled("daemon")
+        .entry("running", running.to_string())
+        .entry("socket", socket.display().to_string())
+        .entry("pidfile", pidfile.display().to_string());
+    if let Some(Value::Object(map)) = body {
+        for (key, value) in map {
+            if key == "socket" || key == "pidfile" {
+                continue; // already shown from the local config above
+            }
+            report = report.entry(key, render_scalar(value));
+        }
+    } else if !running && let Some(pid) = lifecycle::read_pid(pidfile) {
+        report = report.entry("stale_pidfile_pid", pid.to_string());
     }
-    println!("{}", serde_json::to_string_pretty(&value)?);
-    Ok(())
+    report
+}
+
+/// Render a JSON scalar as a flat string for a Presenter Report cell.
+fn render_scalar(value: &Value) -> String {
+    match value {
+        Value::Null => "n/a".to_owned(),
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
 }
 
 async fn write_frame(stream: &mut UnixStream, bytes: &[u8]) -> Result<()> {

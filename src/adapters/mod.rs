@@ -13,6 +13,7 @@ pub mod daemon;
 pub mod genparams;
 pub mod headless;
 pub mod http;
+pub mod inproc;
 pub mod libav;
 pub mod openai;
 pub mod presenter;

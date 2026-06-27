@@ -176,6 +176,16 @@ impl<Speech, Audio, Codec> SpeakFacade<Speech, Audio, Codec> {
         self.speech.supports_realtime().await
     }
 
+    /// Lightweight upstream liveness probe (`GET /health`) for the daemon health
+    /// watchdog (ADR-0010): a single request, distinct from the richer
+    /// [`health`](Self::health) report that also reads models + capability.
+    pub async fn probe_health(&self) -> Result<bool>
+    where
+        Speech: ServerProbe,
+    {
+        self.speech.health().await
+    }
+
     /// Probe server health, models, and realtime capability (FR-14).
     pub async fn health(&self) -> Result<HealthOutcome>
     where

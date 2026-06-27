@@ -48,6 +48,12 @@ eventsource-stream = "0.2"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 base64 = "0.22"
 
+# Unix process control for the single-instance daemon (ADR-0010): pidfile-driven
+# liveness (`kill(pid, 0)`) and graceful replace (SIGTERM -> SIGKILL). `nix` is a
+# safe wrapper over the signal syscalls, so the daemon adapter needs no `unsafe`.
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", default-features = false, features = ["signal"] }
+
 # Native macOS audio I/O (CoreAudio / AVFAudio) — device output + mixer + mic capture.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6", features = ["exception"] }

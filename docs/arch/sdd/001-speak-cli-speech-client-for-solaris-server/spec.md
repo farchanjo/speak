@@ -116,7 +116,12 @@ flow through `tracing` (ADR-0009), so no raw `println!` leaks into the layers.
    `/v1/audio/transcriptions` (`model=whisper-1`, optional `--language`,
    `--format json|text|srt|vtt|verbose_json`).
 7. **Translate (file)** — `speak translate <file>` POSTs multipart to
-   `/v1/audio/translations` (audio to English text).
+   `/v1/audio/translations` (audio to English text). `--format srt|vtt` instead
+   emits timestamped subtitle cues built from the server's transcription
+   SEGMENTS (the `/v1/audio/transcriptions` endpoint emits SRT/VTT), routed
+   through the `Transcriber` port — honouring the `--format` arg for those formats
+   (ADR-0010). Subtitle cues are SOURCE-language; `--to` applies to the text
+   formats only.
 8. **Realtime pipeline** — `speak realtime` captures the microphone in chunks
    (native CoreAudio tap, `--chunk` seconds, silence-split) and runs one of three
    modes, then plays the result through chosen `--output-device`(s):
@@ -143,14 +148,32 @@ flow through `tracing` (ADR-0009), so no raw `println!` leaks into the layers.
 11. **Multi-output routing** — `--output-device` is repeatable on `say` and
     `realtime`; one device pins one engine, many devices fan one decode out to N
     engines (or an aggregate device), fully digital, no exec (ADR-0007).
-12. **Daemon** — `speak daemon [--foreground|stop|status]` runs a process that
-    holds one warm pooled async-openai client and listens on a Unix socket
+12. **Daemon** — `speak daemon [--foreground|stop|status|restart]` runs a process
+    that holds one warm pooled async-openai client and listens on a Unix socket
     (`[daemon].socket`, default `~/.speak/speak.sock`); CLI commands forward to
     it (length-prefixed framing, SSE frames streamed through) with transparent
-    one-shot fallback when no daemon is present (ADR-0005). `[daemon].autostart`
-    controls that fallback: when `true`, a one-shot invocation that finds no
-    daemon auto-launches the daemon binary (detached), waits for the socket, and
-    forwards to it; when `false` (default) it just runs the one-shot client.
+    one-shot fallback when no daemon is present (ADR-0005). The daemon is
+    SINGLE-INSTANCE and is only ever spawned by `speak` itself (ADR-0010): a PID
+    file at `[daemon].pidfile` (`SPEAK_DAEMON_PIDFILE`, default
+    `~/.speak/speak.pid`) records the owner, written atomically and removed on
+    graceful shutdown (SIGINT/SIGTERM). Running `speak daemon` again REPLACES the
+    previous instance — SIGTERM, wait up to `[daemon].kill_grace_ms`
+    (`SPEAK_DAEMON_KILL_GRACE_MS`, default 3000), then SIGKILL — and cleans the
+    leftover socket; a dead/stale pidfile is cleaned. `stop` SIGTERMs the pidfile
+    PID and cleans up; `restart` is a replacing start; `status` reports
+    running/pid/uptime/socket + upstream health through the Presenter (`--json`).
+    A background WATCHDOG probes the upstream `/health` every
+    `SPEAK_DAEMON_HEALTH_INTERVAL` (default 15s, 0 = off) with a
+    `SPEAK_HEALTH_TIMEOUT` (default 5s) bound; after `SPEAK_DAEMON_HEALTH_FAILS`
+    (default 3) consecutive failures it self-recovers (rebuild the warm pool,
+    re-probe the realtime capability) and reports state in `status`, backing off
+    through `[retry]` while degraded. A forwarded non-English `translate`/realtime
+    request honours `--to` because the daemon's warm Facade holds the SAME
+    in-process speech composite (chat-MT Strategy) as the CLI (ADR-0010).
+    `[daemon].autostart` controls the one-shot fallback: when `true`, a one-shot
+    invocation that finds no daemon auto-launches the daemon binary (detached),
+    waits for the socket, and forwards to it; when `false` (default) it just runs
+    the one-shot client.
 13. **Config precedence and catalog** — `CLI flag > ENV (SPEAK_*) >
     ~/.speak/config.toml > code default` (ADR-0006). The file migrates from
     `~/.config/speak` if present. `config init` writes a fully-commented TOML;
