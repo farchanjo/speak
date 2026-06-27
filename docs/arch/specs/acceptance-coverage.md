@@ -122,13 +122,15 @@ on-device verification) and its scenarios are pending until then.
 | File-mode transcribe is unchanged | OFFLINE + UNIT | `cli/args.rs::transcribe_file_mode_takes_a_positional_file`; `cli.rs` existing transcribe path |
 | Silence gate on streaming capture | UNIT | `application/capture.rs::silent_chunk_is_gated_out`, `input_source_captures_and_encodes_wav` |
 | Capture source value object | UNIT | `domain/capture_source.rs::input_is_the_default_direction_shape`, `output_source_flags_the_native_tap`, `direction_parses_known_tokens_and_rejects_others` |
+| The capture source is reported with its config origin | UNIT | `adapters/config.rs::resolver_records_toml_origin_for_capture_source`; `entries_catalog_covers_every_tunable_knob` (key `audio.capture.source`) |
+| `--source` shared by realtime + record (Phase 1b) | UNIT | `cli/args.rs::cli_definition_is_valid` (flag wiring); `application/record.rs::records_*` (CaptureSource-based capture); `application/realtime.rs` (capture via shared `capture::capture_gated`) |
 
 Pending (Phase 2, native tap — on-device): "Stream a transcript of the system
 output via the native tap", "Output capture fails clearly when permission is
 denied", "Record the system output to a file", "Realtime translation of the
-system output", "The capture source is reported with its config origin"
-(the last needs the `[audio.capture]` config keys added with realtime/record
-`--source` in Phase 1b).
+system output". These require the native Core Audio output tap (T011-T013) and
+are validated on real hardware with capture permission; until then `--source
+output` returns the actionable BlackHole hint.
 
 ## Running the coverage
 

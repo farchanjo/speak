@@ -134,7 +134,8 @@ Global flags: `-H/--host -K/--api-key -L/--lang -C/--voice -J/--json -q/--quiet 
 `[audio.input].channel`) captures one channel of a multichannel interface (ADR-0013, e.g. SSL 12).
 **Streaming transcribe** (`transcribe -S/--stream`, ADR-0014): live capture → SSE
 `/v1/realtime/translate` with `translate=false`, prints only `transcript` frames (no re-voicing/playback);
-shares the realtime capture flags (`-d -I -c/--chunk -x -F`). `-s/--source input|output` (ADR-0015)
+shares the realtime capture flags (`-d -I -c/--chunk -x -F`). `-s/--source input|output` (ADR-0015,
+shared by `transcribe --stream` / `realtime` / `record`; overrides `[audio.capture].source`)
 selects the capture side: `input` (mic/line-in, default) or `output` (host/sound-card playback).
 `output` uses a **native macOS Core Audio tap** (macOS 14.4+, Phase 2); until that lands, route the
 output to a virtual-loopback device (**BlackHole**) and capture it as an input
@@ -167,7 +168,8 @@ Every tunable has a `SPEAK_*` env override and a code default (no magic numbers)
 `speak config init` writes a fully-commented `config.toml`; `config show` prints each value
 **and its origin**. Sections: `[server]` (host/api_key/timeouts/pool/keepalive/http2),
 `[tts]`+`[tts.gen]` (voice/format/speed/instruct + gen-params), `[asr]`, `[audio.output]`
-(device/volume→mixer/sample_rate/buffer), `[audio.input]` (mic), `[ffmpeg]`
+(device/volume→mixer/sample_rate/buffer), `[audio.input]` (mic), `[audio.capture]`
+(source=input|output + output device/channel, ADR-0015; `--source` overrides), `[ffmpeg]`
 (threads/resampler/dither/log), `[realtime]` (from/to/translate/chunk), `[daemon]`
 (pidfile/socket/kill_grace_ms/health_interval/health_timeout/health_fails/idle/autostart),
 `[http]` (translate_url/translate_model/save_dir), `[general]` (quiet/json/color/log/temp_dir).
