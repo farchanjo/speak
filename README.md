@@ -169,7 +169,9 @@ speak realtime --vad-floor -50                        # loosen the silence gate 
 speak say "broadcast" -D 41 -D 73                     # fan-out to 2 output devices (-D = --output-device)
 
 # 🧰 daemon + ⚙️ ops
-speak daemon | daemon status | daemon stop | daemon restart
+speak daemon &                                         # start (foreground by default → background it)
+speak daemon status | daemon stop | daemon restart
+# …or set [daemon].autostart = true once, and `speak say` auto-spawns a warm daemon
 speak devices [--json]                                 # list in/out devices + IDs
 speak record -o clip.wav --duration 5 --format wav|flac
 speak config init | path | show                        # `show` prints value + origin
@@ -348,6 +350,13 @@ the difference. Crucially, **audio capture and playback always stay in the foreg
 realtime, and playback are never forwarded.** A background watchdog probes `/health` and hot-swaps the
 connection pool on recovery.
 
+> [!NOTE]
+> `speak daemon` runs in the **foreground** by default — background it (`speak daemon &`) or set
+> `[daemon].autostart = true` so the first `speak say` spawns a detached daemon automatically. Warm
+> forwarded calls run in ~0.4 s vs ~2.5 s cold; confirm forwarding is happening with
+> `speak daemon status` (the `requests` counter rises) — if it shows `running false`, the daemon
+> isn't up and every call silently runs in-process.
+
 ```mermaid
 flowchart LR
     subgraph oneshot["speak say (CLI process)"]
@@ -412,6 +421,7 @@ flowchart TB
 | 🧱 build fails on `bindgen`/`pkg-config` | Missing FFI env — use `make` (auto-exports), or set `LIBCLANG_PATH` + `PKG_CONFIG_PATH`. |
 | 🌍 `--to fr` returns English/transcript | Non-English MT needs `[http].translate_url` (`SPEAK_TRANSLATE_URL`) set. |
 | 🧟 stale daemon socket | `speak daemon restart` (single-instance: SIGTERM → grace → SIGKILL takeover). |
+| 🐢 slow even with a daemon | `speak daemon status` shows `running false` → it isn't actually up (`speak daemon` is foreground; it died when its terminal closed). Background it (`speak daemon &`) or set `[daemon].autostart = true`. Verify the `requests` counter rises on each call. |
 | 🔍 want runtime truth | `speak -v ...` (rotating logs in `~/.speak/logs`) or the headless lldb targets (`make debug-*`). |
 
 ---

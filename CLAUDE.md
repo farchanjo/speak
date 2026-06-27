@@ -143,6 +143,13 @@ socket. A **health watchdog** probes upstream `/health` and, after N failures, s
 (rebuilds pool, re-probes capabilities, re-discovers the SSE endpoint). It **forks and
 self-replaces** → when debugging, attach by PID, never `launch` (§7).
 
+`speak daemon` runs in the **foreground** (background it with `&`). `[daemon].autostart=true`
+(`SPEAK_DAEMON_AUTOSTART`) makes the composition root **auto-spawn a detached daemon** (setsid +
+null stdio) on the first one-shot call when none is running, wait for the socket, then forward —
+ADR-0005 refinement (was an unconsumed knob until 2026-06-27). Warm forwarded `say` ≈ 0.4 s vs
+≈ 2.5 s cold; if `daemon status` shows `running false`, calls silently run in-process. The autostart
+self-spawn is the lone sanctioned `current_exe` exec in the zero-media-exec gate.
+
 ---
 
 ## 6. Configuration — precedence: flag > ENV (`SPEAK_*`) > `~/.speak/config.toml` > default
