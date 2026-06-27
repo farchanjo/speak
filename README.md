@@ -164,6 +164,7 @@ speak translate clip.mp3 --format srt                  # → SOURCE-language sub
 # 📡 realtime + 🔊 multi-output
 speak realtime --from en --to pt-BR                    # live mic translation; Ctrl-C to stop
 speak realtime -d 182 --no-vad --echo                 # pick mic device 182, gate off, echo test
+speak realtime -d 143 -I 0                            # multichannel interface (SSL 12): capture input 1 only
 speak realtime --vad-floor -50                        # loosen the silence gate (dBFS) for noisy input
 speak say "broadcast" -D 41 -D 73                     # fan-out to 2 output devices (-D = --output-device)
 
@@ -182,8 +183,9 @@ speak check | health | --version
 > 💡 **Every option has a short flag** (`speak say -i "Female, British Accent" -s 1.1 -o out.mp3`).
 > `--voice` is `-C` because `-v`/`-V` are taken by verbose/version. Run `speak <cmd> --help` for each
 > command's map. Capture device selection: `record -D <id>` / `realtime -d <id>` pin a specific
-> input `AudioDeviceID` (see `speak devices`); `realtime --no-vad` / `--vad-floor <dBFS>` tune the
-> silence gate.
+> input `AudioDeviceID` (see `speak devices`); `-I <n>` / `[audio.input].channel` selects one input
+> channel of a multichannel interface (e.g. SSL 12); `realtime --no-vad` / `--vad-floor <dBFS>` tune
+> the silence gate.
 
 ### 🎭 The 23 voice-design tags
 
@@ -405,6 +407,7 @@ flowchart TB
 | 🔇 no audio plays | macOS only — non-mac builds return an audio-port error. Use `speak devices` to confirm output. |
 | 🎤 `record`/`realtime` errors instantly | macOS **microphone permission** denied — grant it in System Settings → Privacy. |
 | 🤫 `realtime` captures but does nothing | Wrong input device or the silence gate eats every chunk. Pick the mic with `realtime -d <id>` (`speak devices`), and/or loosen it with `--vad-floor -50` or disable via `--no-vad`. Verify signal: `speak record -D <id> -d 3 -o /tmp/t.wav` then check the level. |
+| 🎛️ multichannel interface (SSL/Focusrite) is silent | The mic is on one input of a many-channel device; the mono downmix averages all of them and dilutes it. Capture just that input: `realtime -d <id> -I <channel>` / `record -D <id> -I <channel>` (0-based), or set `[audio.input].channel` once. |
 | 🔌 `health` fails / calls hang | Server unreachable. Check `SPEAK_HOST`; retries back off automatically (`SPEAK_RETRY_*`). |
 | 🧱 build fails on `bindgen`/`pkg-config` | Missing FFI env — use `make` (auto-exports), or set `LIBCLANG_PATH` + `PKG_CONFIG_PATH`. |
 | 🌍 `--to fr` returns English/transcript | Non-English MT needs `[http].translate_url` (`SPEAK_TRANSLATE_URL`) set. |

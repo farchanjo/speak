@@ -128,7 +128,8 @@ Global flags: `-H/--host -K/--api-key -L/--lang -C/--voice -J/--json -q/--quiet 
 **Every** option has a short (ADR-0012; `--voice`=`-C` since `-v`/`-V` are verbose/version).
 `-D/--output-device <id>` (say/realtime, repeatable → multi-output fan-out). Realtime capture:
 `-d/--device <id>` pins the input device (ADR-0011 — `--device` rebinds the HAL default input);
-`-x/--no-vad` + `-F/--vad-floor <dBFS>` control the silence gate.
+`-x/--no-vad` + `-F/--vad-floor <dBFS>` control the silence gate; `-I/--input-channel <n>` (also
+`[audio.input].channel`) captures one channel of a multichannel interface (ADR-0013, e.g. SSL 12).
 
 ---
 
