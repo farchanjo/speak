@@ -19,12 +19,12 @@ use objc2_avf_audio::{
     AVAudioPlayerNodeCompletionCallbackType, AVAudioTime,
 };
 
-use crate::codec::Pcm;
+use crate::domain::pcm::PcmBuffer;
 
 /// Play interleaved float PCM through the native CoreAudio mixer, blocking
 /// until the buffer finishes rendering (or a safety timeout elapses).
-pub fn play(pcm: &Pcm, volume: f32) -> Result<()> {
-    if pcm.samples.is_empty() {
+pub fn play(pcm: &PcmBuffer, volume: f32) -> Result<()> {
+    if pcm.is_empty() {
         bail!("no PCM samples to play");
     }
     let volume = volume.clamp(0.0, 1.0);
@@ -37,7 +37,7 @@ pub fn play(pcm: &Pcm, volume: f32) -> Result<()> {
 /// Capture roughly `secs` seconds of microphone audio as interleaved float
 /// PCM at the input device's native rate/channels. `device` is accepted for
 /// API parity; only the system default input is wired today.
-pub fn capture_chunk(device: u32, secs: f64) -> Result<Pcm> {
+pub fn capture_chunk(device: u32, secs: f64) -> Result<PcmBuffer> {
     let _ = device;
     autoreleasepool(|_| {
         objc2::exception::catch(|| capture_inner(secs))
@@ -45,12 +45,12 @@ pub fn capture_chunk(device: u32, secs: f64) -> Result<Pcm> {
     })
 }
 
-fn play_inner(pcm: &Pcm, volume: f32) -> Result<()> {
+fn play_inner(pcm: &PcmBuffer, volume: f32) -> Result<()> {
     // SAFETY: AVFAudio objects are created and wired on this thread following
     // the documented AVAudioEngine setup contract; pointers stay valid for the
     // duration of each call.
     unsafe {
-        let format = make_format(pcm.sample_rate, pcm.channels)?;
+        let format = make_format(pcm.sample_rate(), pcm.channels())?;
         let buffer = make_buffer(&format, pcm)?;
         let engine = AVAudioEngine::new();
         let player = AVAudioPlayerNode::new();
@@ -92,9 +92,12 @@ unsafe fn make_format(rate: u32, channels: u16) -> Result<Retained<AVAudioFormat
     }
 }
 
-unsafe fn make_buffer(format: &AVAudioFormat, pcm: &Pcm) -> Result<Retained<AVAudioPCMBuffer>> {
+unsafe fn make_buffer(
+    format: &AVAudioFormat,
+    pcm: &PcmBuffer,
+) -> Result<Retained<AVAudioPCMBuffer>> {
     unsafe {
-        let channels = usize::from(pcm.channels.max(1));
+        let channels = usize::from(pcm.channels().max(1));
         let frames = pcm.frames();
         let buffer = AVAudioPCMBuffer::initWithPCMFormat_frameCapacity(
             AVAudioPCMBuffer::alloc(),
@@ -111,14 +114,14 @@ unsafe fn make_buffer(format: &AVAudioFormat, pcm: &Pcm) -> Result<Retained<AVAu
         for c in 0..channels {
             let plane = (*data.add(c)).as_ptr();
             for f in 0..frames {
-                *plane.add(f) = pcm.samples[f * channels + c];
+                *plane.add(f) = pcm.samples()[f * channels + c];
             }
         }
         Ok(buffer)
     }
 }
 
-fn capture_inner(secs: f64) -> Result<Pcm> {
+fn capture_inner(secs: f64) -> Result<PcmBuffer> {
     // SAFETY: documented AVAudioEngine input-tap setup; the tap closure only
     // locks the shared buffer and is removed before the engine stops.
     unsafe {
@@ -144,11 +147,7 @@ fn capture_inner(secs: f64) -> Result<Pcm> {
             .lock()
             .map_err(|_| anyhow!("capture buffer lock poisoned"))?
             .clone();
-        Ok(Pcm {
-            samples,
-            sample_rate: rate as u32,
-            channels: channels as u16,
-        })
+        Ok(PcmBuffer::new(samples, rate as u32, channels as u16))
     }
 }
 

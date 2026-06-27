@@ -12,6 +12,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{Shell, generate};
 
+use speak::adapters::libav;
 use speak::adapters::openai::OpenAiAdapter;
 use speak::client::SpeakRequest;
 use speak::config::{Config, GlobalFlags};
@@ -24,7 +25,7 @@ use speak::ports::transcriber::{TranscribeRequest, Transcriber};
 use speak::ports::translator::Translator;
 use speak::ports::voice::VoiceRepository;
 use speak::transport::Transport;
-use speak::{accel, audio, client, codec, config, daemon, domain, logging, paths};
+use speak::{accel, audio, client, config, daemon, domain, logging, paths};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -546,14 +547,14 @@ async fn list_voices(adapter: &OpenAiAdapter) -> Result<()> {
 }
 
 async fn play_bytes(bytes: Vec<u8>, content_type: String, cfg: &Config, quiet: bool) -> Result<()> {
-    let opts = codec::DecodeOptions {
+    let opts = libav::DecodeOptions {
         threads: cfg.ffmpeg.threads,
         log_level: cfg.ffmpeg.log_level.clone(),
     };
     let volume = cfg.audio.output.volume;
     let (samples, frames, secs) = tokio::task::spawn_blocking(move || -> Result<_> {
-        let pcm = codec::decode(bytes, &opts)?;
-        let stats = (pcm.samples.len(), pcm.frames(), pcm.duration_secs());
+        let pcm = libav::decode(bytes, &opts)?;
+        let stats = (pcm.samples().len(), pcm.frames(), pcm.duration_secs());
         audio::play(&pcm, volume)?;
         Ok(stats)
     })
@@ -562,7 +563,7 @@ async fn play_bytes(bytes: Vec<u8>, content_type: String, cfg: &Config, quiet: b
         eprintln!(
             "decoded {content_type}: {samples} samples ({frames} frames @ {}Hz, {secs:.2}s); \
              played via native CoreAudio mixer",
-            codec::PLAY_RATE
+            libav::PLAY_RATE
         );
     }
     Ok(())
@@ -652,11 +653,11 @@ async fn realtime_iter(
 ) -> Result<()> {
     let device = args.device;
     let pcm = tokio::task::spawn_blocking(move || audio::capture_chunk(device, chunk)).await??;
-    let mono = tokio::task::spawn_blocking(move || codec::to_asr_mono16(&pcm)).await??;
-    if cfg.audio.input.vad && codec::rms_s16(&mono) < silence_floor(cfg) {
+    let mono = tokio::task::spawn_blocking(move || libav::to_asr_mono16(&pcm)).await??;
+    if cfg.audio.input.vad && libav::rms_s16(&mono) < silence_floor(cfg) {
         return Ok(());
     }
-    let wav = codec::wav_mono16(&mono, codec::ASR_RATE);
+    let wav = libav::wav_mono16(&mono, libav::ASR_RATE);
     let text = translate_chunk(transport, cfg, args, wav).await?;
     if text.is_empty() {
         return Ok(());

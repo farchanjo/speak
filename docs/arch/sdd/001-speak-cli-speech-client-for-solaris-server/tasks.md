@@ -128,6 +128,14 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
 - [x] T033 `[adapter:libav]` custom in-memory AVIO decode -> PCM, libswresample
   resample (48 kHz stereo f32 / 16 kHz mono s16), in-memory WAV mux, RMS gate;
   implements `AudioDecoder` (ADR-0001).
+  (The libav FFI moved out of the flat `src/codec.rs` into the
+  `src/adapters/libav/` driven adapter — now the ONLY place `ffmpeg-the-third`
+  appears. `LibavCodec` (Factory `new(DecodeOptions)`) implements
+  `ports::AudioDecoder`: `decode` produces the pure `domain::pcm::PcmBuffer`
+  (the flat `codec::Pcm` duplicate is gone) and `resample` is the general
+  FLT->FLT path; the canonical-rate/channel constants, `to_asr_mono16`,
+  `wav_mono16` and `rms_s16` are re-exported for the still-flat realtime path
+  until T044/T055. No `ffmpeg` type crosses the port boundary.)
 - [x] T034 `[adapter:coreaudio]` `AVAudioEngine` playback
   (`AVAudioPlayerNode -> mainMixerNode -> outputNode`) + `inputNode` capture;
   implements `AudioSink`/`AudioSource` (ADR-0001).
@@ -160,10 +168,19 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   landed (ADR-0008 resolved), including the `[tts.gen]` -> `gen_params` rename
   (serde keeps the TOML key) and the let-chain / `unsafe`-block fixups; the
   layered tree move and the `[http]` split remain pending.)
-- [ ] T038 `[adapter:libav]` record-output **encode**: hand-muxed WAV (no
+- [x] T038 `[adapter:libav]` record-output **encode**: hand-muxed WAV (no
   encoder) and FLAC via the libavcodec FLAC encoder through an in-memory AVIO
   **write** callback; implements `AudioEncoder` (`record --format wav|flac`,
   FR-9 / ADR-0001).
+  (`src/adapters/libav/encode.rs`: `encode_wav` quantises the captured
+  `PcmBuffer` (f32) to interleaved s16 and hand-muxes a multi-channel RIFF/WAVE
+  buffer; `encode_flac` drives the libavcodec FLAC encoder and muxes the `.flac`
+  container through a custom in-memory AVIO **write** callback — the mirror of
+  the decode read callback — with a seekable `MemSink` so the muxer back-patches
+  STREAMINFO; no temp files, no exec. `LibavCodec` implements
+  `ports::AudioEncoder::encode` over the `RecordFormat` Strategy. Validated by an
+  encode->decode round-trip unit test (mono + stereo); the `record` CLI/use case
+  wiring is T043/T055.)
 - [ ] T039 `[adapter:chatmt]` arbitrary-target machine translation: implement the
   `Translator` **Strategy** against `[http].translate_url` /
   `[http].translate_model` (non-OpenAI chat-MT endpoint), reusing the warm pool;

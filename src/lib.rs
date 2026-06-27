@@ -15,7 +15,6 @@
 pub mod accel;
 pub mod adapters;
 pub mod client;
-pub mod codec;
 pub mod config;
 pub mod daemon;
 pub mod domain;

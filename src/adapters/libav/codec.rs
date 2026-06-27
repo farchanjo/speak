@@ -1,13 +1,16 @@
-//! libav (FFmpeg) codec layer.
+//! libav (FFmpeg) decode + resample internals for the `libav` adapter.
 //!
 //! Responsibilities (codec role only, no device I/O, no process exec):
 //!   * decode compressed network audio (mp3/opus/aac/flac/wav/pcm) into PCM,
 //!     fed through a custom in-memory AVIO read callback;
-//!   * resample PCM between formats via libswresample;
-//!   * mux a minimal in-memory RIFF/WAVE buffer.
+//!   * resample PCM between formats via libswresample (48 kHz stereo f32 for
+//!     playback, 16 kHz mono s16 for ASR upload, or an arbitrary target);
+//!   * mux a minimal in-memory RIFF/WAVE buffer for the ASR upload.
 //!
 //! All work goes through the linked `libav*` libraries via FFI; nothing is
-//! shelled out.
+//! shelled out. The canonical in-memory PCM type is the pure
+//! [`crate::domain::pcm::PcmBuffer`]; no `ffmpeg` type crosses the adapter
+//! boundary.
 
 use std::os::raw::{c_int, c_void};
 use std::ptr;
@@ -16,6 +19,8 @@ use std::sync::Once;
 use anyhow::{Context as _, Result, anyhow, bail};
 use ff::ffi;
 use ffmpeg_the_third as ff;
+
+use crate::domain::pcm::PcmBuffer;
 
 /// Canonical playback format the decoder resamples to. The native CoreAudio
 /// mixer performs the final hardware-rate conversion.
@@ -28,32 +33,7 @@ pub const ASR_RATE: u32 = 16_000;
 /// Capture/ASR channel count (mono).
 pub const ASR_CHANNELS: u16 = 1;
 
-/// Interleaved 32-bit float PCM with its sample rate and channel count.
-#[derive(Debug, Clone)]
-pub struct Pcm {
-    /// Interleaved samples (`channels` values per frame).
-    pub samples: Vec<f32>,
-    /// Sample rate in Hz.
-    pub sample_rate: u32,
-    /// Channel count.
-    pub channels: u16,
-}
-
-impl Pcm {
-    /// Number of audio frames (samples per channel).
-    #[must_use]
-    pub fn frames(&self) -> usize {
-        self.samples.len() / usize::from(self.channels.max(1))
-    }
-
-    /// Duration in seconds.
-    #[must_use]
-    pub fn duration_secs(&self) -> f64 {
-        self.frames() as f64 / f64::from(self.sample_rate.max(1))
-    }
-}
-
-fn ensure_init() -> Result<()> {
+pub(super) fn ensure_init() -> Result<()> {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
         let _ = ff::init();
@@ -64,7 +44,7 @@ fn ensure_init() -> Result<()> {
     Ok(())
 }
 
-fn ff_err(code: c_int) -> anyhow::Error {
+pub(super) fn ff_err(code: c_int) -> anyhow::Error {
     anyhow!("libav error: {}", ff::Error::from(code))
 }
 
@@ -101,7 +81,7 @@ fn log_level_value(name: &str) -> c_int {
 }
 
 /// Decode a compressed audio buffer into canonical 48 kHz stereo float PCM.
-pub fn decode(bytes: Vec<u8>, opts: &DecodeOptions) -> Result<Pcm> {
+pub fn decode(bytes: Vec<u8>, opts: &DecodeOptions) -> Result<PcmBuffer> {
     ensure_init()?;
     // SAFETY: setting the global libav log level is thread-safe.
     unsafe { ffi::av_log_set_level(log_level_value(&opts.log_level)) };
@@ -110,40 +90,66 @@ pub fn decode(bytes: Vec<u8>, opts: &DecodeOptions) -> Result<Pcm> {
     let samples = decode_stream(&mut input, opts.threads)?;
     drop(input);
     drop(avio);
-    Ok(Pcm {
-        samples,
-        sample_rate: PLAY_RATE,
-        channels: PLAY_CHANNELS,
-    })
+    Ok(PcmBuffer::new(samples, PLAY_RATE, PLAY_CHANNELS))
 }
 
-/// Resample interleaved float PCM to 16 kHz mono signed-16 for ASR upload.
-pub fn to_asr_mono16(pcm: &Pcm) -> Result<Vec<i16>> {
+/// Resample interleaved float PCM to `sample_rate`/`channels`, keeping float
+/// samples (e.g. the `AudioDecoder::resample` port for ASR-rate playback prep).
+pub fn resample_pcm(pcm: &PcmBuffer, sample_rate: u32, channels: u16) -> Result<PcmBuffer> {
     ensure_init()?;
-    let mut in_layout = default_layout(i32::from(pcm.channels));
+    let mut in_layout = default_layout(i32::from(pcm.channels()));
     // SAFETY: `in_layout` is a valid default layout that outlives this call.
     let mut resampler = unsafe {
         Resampler::new(
             ffi::AVSampleFormat::FLT,
-            i32::from(pcm.channels),
+            i32::from(pcm.channels()),
             ptr::addr_of!(in_layout),
-            pcm.sample_rate as i32,
+            pcm.sample_rate() as i32,
+            ffi::AVSampleFormat::FLT,
+            i32::from(channels),
+            sample_rate as i32,
+        )?
+    };
+    let bytes = run_resampler(&mut resampler, pcm)?;
+    drop(resampler);
+    // SAFETY: avoids freeing the borrowed stack layout twice.
+    unsafe { ffi::av_channel_layout_uninit(ptr::addr_of_mut!(in_layout)) };
+    Ok(PcmBuffer::new(bytes_to_f32(&bytes), sample_rate, channels))
+}
+
+/// Resample interleaved float PCM to 16 kHz mono signed-16 for ASR upload.
+pub fn to_asr_mono16(pcm: &PcmBuffer) -> Result<Vec<i16>> {
+    ensure_init()?;
+    let mut in_layout = default_layout(i32::from(pcm.channels()));
+    // SAFETY: `in_layout` is a valid default layout that outlives this call.
+    let mut resampler = unsafe {
+        Resampler::new(
+            ffi::AVSampleFormat::FLT,
+            i32::from(pcm.channels()),
+            ptr::addr_of!(in_layout),
+            pcm.sample_rate() as i32,
             ffi::AVSampleFormat::S16,
             i32::from(ASR_CHANNELS),
             ASR_RATE as i32,
         )?
     };
-    let frames = pcm.frames();
-    // SAFETY: `planes[0]` points to `samples`, valid for `frames` frames.
-    let mut bytes = unsafe {
-        let planes = [pcm.samples.as_ptr().cast::<u8>()];
-        resampler.convert(planes.as_ptr(), frames as c_int)?
-    };
-    bytes.extend(resampler.flush()?);
+    let bytes = run_resampler(&mut resampler, pcm)?;
     drop(resampler);
     // SAFETY: avoids freeing the borrowed stack layout twice.
     unsafe { ffi::av_channel_layout_uninit(ptr::addr_of_mut!(in_layout)) };
     Ok(bytes_to_i16(&bytes))
+}
+
+/// Push one interleaved-float block through `resampler`, draining its tail.
+fn run_resampler(resampler: &mut Resampler, pcm: &PcmBuffer) -> Result<Vec<u8>> {
+    let frames = pcm.frames();
+    // SAFETY: `planes[0]` points to the interleaved samples, valid for `frames`.
+    let mut bytes = unsafe {
+        let planes = [pcm.samples().as_ptr().cast::<u8>()];
+        resampler.convert(planes.as_ptr(), frames as c_int)?
+    };
+    bytes.extend(resampler.flush()?);
+    Ok(bytes)
 }
 
 /// Root-mean-square amplitude of signed-16 samples, normalised to `0.0..=1.0`.
@@ -165,6 +171,16 @@ pub fn rms_s16(samples: &[i16]) -> f64 {
 /// Mux signed-16 mono PCM into an in-memory RIFF/WAVE buffer (no exec).
 #[must_use]
 pub fn wav_mono16(samples: &[i16], sample_rate: u32) -> Vec<u8> {
+    wav_pcm16(samples, sample_rate, 1)
+}
+
+/// Mux interleaved signed-16 PCM into an in-memory RIFF/WAVE buffer with the
+/// given channel count (the `record --format wav` path; no encoder, no exec).
+#[must_use]
+pub fn wav_pcm16(samples: &[i16], sample_rate: u32, channels: u16) -> Vec<u8> {
+    let channels = channels.max(1);
+    let block_align = channels * 2;
+    let byte_rate = sample_rate * u32::from(block_align);
     let data_len = (samples.len() * 2) as u32;
     let mut buf = Vec::with_capacity(44 + samples.len() * 2);
     buf.extend_from_slice(b"RIFF");
@@ -173,10 +189,10 @@ pub fn wav_mono16(samples: &[i16], sample_rate: u32) -> Vec<u8> {
     buf.extend_from_slice(b"fmt ");
     buf.extend_from_slice(&16u32.to_le_bytes()); // PCM fmt chunk size
     buf.extend_from_slice(&1u16.to_le_bytes()); // PCM
-    buf.extend_from_slice(&1u16.to_le_bytes()); // mono
+    buf.extend_from_slice(&channels.to_le_bytes());
     buf.extend_from_slice(&sample_rate.to_le_bytes());
-    buf.extend_from_slice(&(sample_rate * 2).to_le_bytes()); // byte rate
-    buf.extend_from_slice(&2u16.to_le_bytes()); // block align
+    buf.extend_from_slice(&byte_rate.to_le_bytes());
+    buf.extend_from_slice(&block_align.to_le_bytes());
     buf.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
     buf.extend_from_slice(b"data");
     buf.extend_from_slice(&data_len.to_le_bytes());
@@ -184,6 +200,15 @@ pub fn wav_mono16(samples: &[i16], sample_rate: u32) -> Vec<u8> {
         buf.extend_from_slice(&s.to_le_bytes());
     }
     buf
+}
+
+/// Quantise interleaved float PCM to interleaved signed-16 (record encoders).
+#[must_use]
+pub fn f32_to_i16(samples: &[f32]) -> Vec<i16> {
+    samples
+        .iter()
+        .map(|&s| (s.clamp(-1.0, 1.0) * f32::from(i16::MAX)).round() as i16)
+        .collect()
 }
 
 fn bytes_to_i16(bytes: &[u8]) -> Vec<i16> {
@@ -551,28 +576,6 @@ mod tests {
     }
 
     #[test]
-    fn pcm_frames_and_duration() {
-        let pcm = Pcm {
-            samples: vec![0.0; 96_000], // 48_000 stereo frames
-            sample_rate: 48_000,
-            channels: 2,
-        };
-        assert_eq!(pcm.frames(), 48_000);
-        assert!((pcm.duration_secs() - 1.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn pcm_duration_guards_against_zero_rate() {
-        let pcm = Pcm {
-            samples: vec![0.0; 10],
-            sample_rate: 0,
-            channels: 1,
-        };
-        // `max(1)` keeps the division finite rather than dividing by zero.
-        assert!(pcm.duration_secs().is_finite());
-    }
-
-    #[test]
     fn rms_of_silence_is_zero() {
         assert_eq!(rms_s16(&[]), 0.0);
         assert_eq!(rms_s16(&[0, 0, 0, 0]), 0.0);
@@ -606,11 +609,22 @@ mod tests {
     }
 
     #[test]
-    fn wav_payload_round_trips_samples() {
-        let samples = [100i16, -100, 32_767, -32_768];
-        let wav = wav_mono16(&samples, 16_000);
-        let decoded = bytes_to_i16(&wav[44..]);
-        assert_eq!(decoded, samples);
+    fn wav_pcm16_stereo_header_uses_channel_block_align() {
+        let samples = [1i16, -1, 2, -2]; // 2 stereo frames
+        let wav = wav_pcm16(&samples, 48_000, 2);
+        assert_eq!(read_u16_le(&wav, 22), 2); // channels
+        assert_eq!(read_u32_le(&wav, 28), 48_000 * 4); // byte rate = rate*ch*2
+        assert_eq!(read_u16_le(&wav, 32), 4); // block align = ch*2
+    }
+
+    #[test]
+    fn f32_to_i16_clamps_and_scales_full_range() {
+        let out = f32_to_i16(&[0.0, 1.0, -1.0, 2.0, -2.0]);
+        assert_eq!(out[0], 0);
+        assert_eq!(out[1], i16::MAX);
+        assert_eq!(out[2], -i16::MAX);
+        assert_eq!(out[3], i16::MAX); // clamped
+        assert_eq!(out[4], -i16::MAX); // clamped
     }
 
     #[test]
@@ -649,5 +663,20 @@ mod tests {
         assert_eq!(PLAY_CHANNELS, 2);
         assert_eq!(ASR_RATE, 16_000);
         assert_eq!(ASR_CHANNELS, 1);
+    }
+
+    #[test]
+    fn resample_pcm_changes_rate_and_channel_count() {
+        // 1 s of 8 kHz mono silence -> 16 kHz stereo: frames double, ch x2.
+        let src = PcmBuffer::new(vec![0.0f32; 8_000], 8_000, 1);
+        let out = resample_pcm(&src, 16_000, 2).unwrap();
+        assert_eq!(out.sample_rate(), 16_000);
+        assert_eq!(out.channels(), 2);
+        // ~1 s at 16 kHz stereo (allow resampler edge padding).
+        assert!(
+            (out.frames() as i64 - 16_000).abs() < 64,
+            "{}",
+            out.frames()
+        );
     }
 }

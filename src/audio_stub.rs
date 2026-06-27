@@ -6,14 +6,14 @@
 
 use anyhow::{Result, bail};
 
-use crate::codec::Pcm;
+use crate::domain::pcm::PcmBuffer;
 
 /// Playback is unsupported off macOS (see module docs).
-pub fn play(_pcm: &Pcm, _volume: f32) -> Result<()> {
+pub fn play(_pcm: &PcmBuffer, _volume: f32) -> Result<()> {
     bail!("native audio playback is only implemented on macOS (CoreAudio); use -o FILE / --no-play")
 }
 
 /// Capture is unsupported off macOS (see module docs).
-pub fn capture_chunk(_device: u32, _secs: f64) -> Result<Pcm> {
+pub fn capture_chunk(_device: u32, _secs: f64) -> Result<PcmBuffer> {
     bail!("native microphone capture is only implemented on macOS (CoreAudio)")
 }

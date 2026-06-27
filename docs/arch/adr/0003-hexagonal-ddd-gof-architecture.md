@@ -145,8 +145,8 @@ The crate is now a **library core (`src/lib.rs`) plus a thin binary
 (`src/main.rs`)** rather than a bin-only crate. `main.rs` is the clap driving
 adapter and composition root; it depends on the library via `use speak::…` and
 holds no reusable logic beyond CLI mapping. This makes the inward modules
-(`domain`, `config`, `client`, `codec`, `daemon`, `transport`, `accel`,
-`paths`, `audio`) a reusable, directly testable surface and lets the
+(`domain`, `ports`, `adapters`, `config`, `client`, `daemon`, `transport`,
+`accel`, `paths`, `audio`) a reusable, directly testable surface and lets the
 configuration catalog's forward-looking value objects be reachable `pub` API
 (rather than bin-private dead code).
 
@@ -180,13 +180,25 @@ for the raw calls and lets `async-openai` build its own; unifying them is a
 composition-root concern (T054). Retry is intentionally NOT baked into the
 adapter: the port-preserving decorator (T046) wraps it at the root.
 
-The `application/` use cases and the remaining `adapters/*` (coreaudio, libav,
-config, sse, chatmt, retry) split are still tracked in `tasks.md`; the CLI
+The second driven adapter has landed: `src/adapters/libav/` (`LibavCodec`)
+implements the `AudioDecoder` and `AudioEncoder` ports (T033/T038). The libav
+FFI moved wholesale out of the flat `src/codec.rs` (now deleted) into this
+adapter, so `ffmpeg-the-third` no longer appears outside `adapters/` — the
+in-memory AVIO read (decode/resample) and the new in-memory AVIO **write** path
+(the libavcodec FLAC encoder + `.flac` muxer with a seekable sink, plus the
+hand-muxed WAV) both live here. The canonical in-memory PCM type collapsed onto
+the pure `domain::pcm::PcmBuffer` (the duplicate `codec::Pcm` is gone); the
+adapter's lower-level free functions (`decode`, `to_asr_mono16`, `wav_mono16`,
+`rms_s16`, the rate/channel constants) stay re-exported for the still-flat
+realtime path until it moves onto the ports (T044/T055).
+
+The `application/` use cases and the remaining `adapters/*` (coreaudio, config,
+sse, chatmt, retry) split are still tracked in `tasks.md`; the CLI
 `say`/`transcribe`/`translate`/`voices` paths now drive the `openai` ports
 directly (in-process), with the daemon-forward / Facade unification deferred to
 T045/T053/T054. This ADR section records the lib/bin boundary, the ports +
-domain landing, and the first driven adapter as concrete steps toward the full
-layout.
+domain landing, and the first two driven adapters as concrete steps toward the
+full layout.
 
 The Validate phase added a real test suite exercising this core: domain
 value-object units (voice-design tag validation, gen-param keys, retry/backoff

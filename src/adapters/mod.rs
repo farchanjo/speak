@@ -6,4 +6,5 @@
 //! the pure [`crate::domain`] value objects to and from the wire. Dependencies
 //! point inward only: adapters depend on ports + domain, never the reverse.
 
+pub mod libav;
 pub mod openai;
