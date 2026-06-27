@@ -185,3 +185,42 @@ route disappears, restore it with **`bash /root/omnivoice/ensure_sse.sh`** (idem
 - Angular Conventional commits; **small contextual commits**; docs + code committed
   together. Don't push unless asked.
 - en-US for all code/docs/commits.
+
+---
+
+## 10. Debugger-grounded analysis (headless lldb)
+
+**When runtime behaviour, a value, a type, or a call path is uncertain — stop the
+process and read the truth instead of guessing from source.** A wrong field name or
+an assumed value is exactly where an LLM hallucinates; lldb refuses the wrong name
+and prints the real one. Drive it non-interactively via the harness in
+`scripts/debug/` (everything wrapped in a hard `timeout`; the Rust pretty-printer
+banner is stripped).
+
+```bash
+# backtrace + real values at a line (grounds "what is cfg here?")
+make debug-bt LOC='--file main.rs --line 111' ARGS='config path' P='p cfg->server.host'
+#   -> cfg->server.host = "http://solaris:8800"   cfg->server.timeout = 300
+
+# run a command, catch a panic, dump backtrace + locals at the panic site
+make debug-panic ARGS='say hi'
+
+# all-thread state of the LIVE daemon, read-only (why is it hung?) — never kills it
+make debug-attach            # reads ~/.speak/speak.pid   (or PID=1234)
+
+# optimized build that keeps symbols, to debug release-shaped behaviour
+make build-dbg               # -> target/release-dbg/speak
+```
+
+Direct scripts (same flags, outside make): `scripts/debug/rust-lldb-batch.sh`,
+`rust-panic-trace.sh`, `rust-lldb-attach.sh`.
+
+**Rules:** read SPECIFIC members (`p cfg->server.host`), never `frame variable
+*struct` — the whole-struct synthetic walk can stall (the harness caps it with a
+timeout anyway). For the forking/self-replacing daemon, `debug-attach` by PID, don't
+`launch`. FFI/ObjC frames show as C — set breakpoints on Rust symbols.
+
+**Java** (the Maven/Gradle projects, not this repo): start the JVM with JDWP
+(`mvnDebug`, `mvn -Dmaven.surefire.debug test`, or `gradle … --debug-jvm`) then drive
+`jdb` headless via `~/bin/jdwp-trace -p 5005 -s 'pkg.Class:42' -c where -c locals -c cont`.
+For a live snapshot without breakpoints: `jstack <pid>` / `jcmd <pid> Thread.print`.
