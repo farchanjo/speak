@@ -1,9 +1,12 @@
 //! `translate` handler (T051): translate foreign-language audio to text.
 //!
 //! Reads the file (driving-adapter concern) and drives the [`AppFacade`]'s
-//! translate use case (FR-7). The `Translator` Strategy port is text-valued and
-//! English-targeted here; subtitle (`srt`/`vtt`) output and arbitrary targets
-//! return with the chat-MT Strategy (T039).
+//! translate use case (FR-7). The composition root injects the `Translator`
+//! **Strategy** the facade holds: an English `--to` stays on Whisper translate,
+//! while a non-English target routes through the chat-MT Strategy (T039),
+//! degrading to the source transcript when `[http].translate_url` is unset.
+//! Subtitle (`srt`/`vtt`) output returns with the file-translate subtitle path
+//! (T041).
 
 use anyhow::{Context, Result};
 
@@ -26,10 +29,9 @@ pub async fn run(
         .await
         .with_context(|| format!("reading {}", args.file.display()))?;
     let filename = file_name(&args.file);
-    // The Translator port targets English; the requested subtitle format returns
-    // with the file-translate subtitle path (T039/T041).
+    // Subtitle output returns with the file-translate subtitle path (T041).
     let _ = args.format;
-    let target = Language::parse("en")?;
+    let target = Language::parse(&args.to)?;
     let text = facade.translate(&bytes, &filename, &target).await?;
     presenter.line(&text)
 }

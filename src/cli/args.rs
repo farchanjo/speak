@@ -176,9 +176,12 @@ pub struct TranscribeArgs {
 /// `translate` arguments.
 #[derive(Args, Debug)]
 pub struct TranslateArgs {
-    /// Audio file to translate to English.
+    /// Audio file to translate.
     #[arg(value_name = "FILE")]
     pub file: PathBuf,
+    /// Target language (`en` uses Whisper translate; others use chat-MT, T039).
+    #[arg(long, default_value = "en", value_name = "LANG")]
+    pub to: String,
     /// Output format.
     #[arg(long, value_enum, default_value_t = TextFormat::Text)]
     pub format: TextFormat,
