@@ -55,11 +55,13 @@ loop (CLAUDE.md §7), so it is done with the device in the loop, not headless.
       (`NSAudioCaptureUsageDescription`, embedded via `build.rs`),
       `packaging/macos/speak.entitlements` (`com.apple.security.device.audio-input`),
       `scripts/macos-bundle.sh` + `make app` → signed `target/speak.app`.
-- [ ] T013 [verify] FINAL on-device audio confirmation is gated on the one-time
-      interactive `kTCCServiceAudioCapture` grant (`make app` → run the bundle →
-      Allow) — an OS-permission step, not a code defect (see `research.md`).
-      Construction + device routing verified; binding the four pending
-      output-source scenarios in the acceptance trace awaits the grant.
+- [x] T013 [verify] CONFIRMED on-device: after `make app`,
+      `open target/speak.app --args record -s output …` fired the audio-capture
+      prompt → allowed → `kTCCServiceAudioCapture ltd.eonf.speak=2` → the tap
+      captured a 440 Hz tone at **mean −24 dBFS / peak −9 dBFS** (2-ch). Caveat:
+      TCC's responsible-process rule — `open`-launched `speak.app` is granted;
+      direct-exec from a shell makes the shell responsible (grant the terminal or
+      use a self-disclaim re-exec for seamless direct-exec). See `research.md`.
 
 ## Dependencies
 

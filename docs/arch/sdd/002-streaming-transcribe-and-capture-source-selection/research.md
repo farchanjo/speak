@@ -122,10 +122,25 @@ loop. Findings that changed the design:
    grant. This last step is **interactive and user-environment-specific** — it
    cannot be completed from a headless/automation shell.
 
-Net: the native tap is **code-complete and verified-correct**; delivering audio
-is gated solely on the one-time interactive `kTCCServiceAudioCapture` grant
-(`make app` → run the bundle → Allow), which is an OS-permission step, not a code
-defect. The all-zero case is surfaced as a `tracing` warning pointing at the fix.
+5. **CONFIRMED WORKING.** After `make app`, launching the signed bundle via
+   LaunchServices — `open target/speak.app --args record -s output …` — fired the
+   audio-capture prompt; allowing it landed `ltd.eonf.speak=2` in TCC and the tap
+   **captured a 440 Hz tone at mean −24 dBFS / peak −9 dBFS** (2-channel). The
+   grant persists by team id.
+6. **Responsible-process caveat.** TCC attributes to the *responsible process*.
+   `open`-launched `speak.app` is its own responsible subject and holds the grant.
+   **Direct-exec from a shell** (`./speak.app/Contents/MacOS/speak …`) makes the
+   *parent shell/terminal* responsible — which lacks the grant — so it captures
+   silence. Seamless `transcribe --stream --source output` from a terminal needs
+   that terminal app granted audio-capture too (run the bundle binary from it once
+   and allow), or a future self-`disclaim`-responsibility re-exec (the pattern
+   terminal emulators use) so `speak` is always its own subject.
+
+Net: the native tap is **code-complete and confirmed working** (audio captured at
+−24 dBFS through the granted bundle). Delivering audio depends only on the OS
+`kTCCServiceAudioCapture` grant + the responsible-process being a granted subject
+(`make app` → `open` to grant; grant the terminal for direct-exec). The all-zero
+case is surfaced as a `tracing` warning pointing at the fix.
 
 ## Interim
 

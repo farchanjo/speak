@@ -140,13 +140,18 @@ selects the capture side: `input` (mic/line-in, default) or `output` (host/sound
 `output` uses a **native macOS Core Audio tap** (macOS 14.4+, ADR-0015): a stereo global
 `CATapDescription` → process tap → private aggregate device, read directly by id via an
 `AudioDeviceIOProc` (NOT AVAudioEngine — the default-input path binds to the real input device).
-**Permission**: the tap needs the macOS audio-capture grant (`kTCCServiceAudioCapture`); a bare
-CLI can't obtain it, so run the **signed bundle** — `make app` builds `target/speak.app`
-(embedded `NSAudioCaptureUsageDescription` + `com.apple.security.device.audio-input`); launch
-`target/speak.app/Contents/MacOS/speak --source output …` once and **allow** the prompt (grant
-persists by team id). Without the grant the tap runs but returns silence (logged as a `tracing`
-warning). **No-permission fallback**: route the output to a virtual-loopback device (**BlackHole**)
-and capture it as an input (`--source input -d <blackhole-id>`).
+**Permission** (verified working): the tap needs the macOS audio-capture grant
+(`kTCCServiceAudioCapture`). `make app` builds the signed `target/speak.app` (embedded
+`NSAudioCaptureUsageDescription` + `com.apple.security.device.audio-input`, Apple-Development
+identity). Grant it once via LaunchServices so `speak.app` is the *responsible* TCC subject:
+`open target/speak.app --args record -s output -o /tmp/x.wav -d 3` → **Allow** the prompt (grant
+persists by team id — confirmed: captured a tone at −24 dBFS). TCC attributes to the *responsible
+process*: `open`-launched `speak.app` holds the grant; **direct-exec from a shell makes the shell
+responsible**, so for seamless `speak transcribe --stream --source output` from a terminal, grant
+that terminal app audio-capture too (run the bundle binary from it once and allow). Without the
+grant the tap runs but returns silence (a `tracing` warning names the fix). **No-permission
+fallback**: route the output to a virtual-loopback device (**BlackHole**) and capture it as an
+input (`--source input -d <blackhole-id>`).
 
 ---
 
