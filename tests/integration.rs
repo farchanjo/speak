@@ -60,6 +60,8 @@ fn with_server(name: &str, body: impl FnOnce(&str)) {
 #[test]
 fn health_reports_server_status() {
     with_server("health", |host| {
+        // Plain run: the Presenter console adapter emits a key/value report
+        // (health is routed through the Presenter port, not raw println!).
         let out = run(host, &["health"]);
         assert!(
             out.status.success(),
@@ -67,7 +69,23 @@ fn health_reports_server_status() {
             String::from_utf8_lossy(&out.stderr)
         );
         let text = String::from_utf8_lossy(&out.stdout);
-        assert!(text.contains('{'), "expected JSON health body: {text}");
+        assert!(text.contains("healthy"), "expected a health report: {text}");
+        assert!(text.contains("models"), "expected a models row: {text}");
+
+        // `--json` (FR-16): the same result as a single machine-readable object.
+        let json = run(host, &["--json", "health"]);
+        assert!(
+            json.status.success(),
+            "{}",
+            String::from_utf8_lossy(&json.stderr)
+        );
+        let body = String::from_utf8_lossy(&json.stdout);
+        let value: serde_json::Value = serde_json::from_str(body.trim())
+            .unwrap_or_else(|e| panic!("invalid JSON {body}: {e}"));
+        assert!(
+            value["entries"]["healthy"].is_string(),
+            "expected entries.healthy: {body}"
+        );
     });
 }
 
