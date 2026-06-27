@@ -106,6 +106,30 @@ flowchart LR
 Every scenario maps to at least one assertion that executes in `cargo nextest run`
 (OFFLINE / UNIT / GATE classes) or in the server-gated integration suite.
 
+## Feature 002 — streaming transcribe and capture source (Phase 1)
+
+Trace for `docs/arch/specs/features/streaming-transcribe-and-capture-source-selection.feature`
+(ADR-0014 / ADR-0015). Phase 1 ships streaming transcribe (mic) + the `--source`
+selector + the BlackHole fallback; the native output tap is Phase 2 (T011-T013,
+on-device verification) and its scenarios are pending until then.
+
+| Scenario | Class | Bound assertion(s) |
+|---|---|---|
+| Stream a live transcript from the microphone | UNIT | `application/stream_transcribe.rs::capture_returns_wav_for_a_live_chunk`, `drive_surfaces_transcripts_and_ignores_audio_and_translation`; `cli/args.rs::transcribe_stream_parses_without_a_file` |
+| Streaming transcribe ignores re-voiced audio frames | UNIT | `application/stream_transcribe.rs::drive_surfaces_transcripts_and_ignores_audio_and_translation` (asserts audio/translation frames are dropped, no playback) |
+| Output capture fails clearly when unavailable (no native tap yet) | UNIT | `application/capture.rs::output_source_without_native_tap_errors_with_fallback_hint` (error names BlackHole); `ports/audio.rs` `capture_for` default |
+| Capture a routed virtual-loopback device through the input source | UNIT | `cli/args.rs::transcribe_stream_selects_the_output_source_with_device_and_channel` (device+channel parse); routed loopback is an ordinary input device captured via `--source input -d <id>` |
+| File-mode transcribe is unchanged | OFFLINE + UNIT | `cli/args.rs::transcribe_file_mode_takes_a_positional_file`; `cli.rs` existing transcribe path |
+| Silence gate on streaming capture | UNIT | `application/capture.rs::silent_chunk_is_gated_out`, `input_source_captures_and_encodes_wav` |
+| Capture source value object | UNIT | `domain/capture_source.rs::input_is_the_default_direction_shape`, `output_source_flags_the_native_tap`, `direction_parses_known_tokens_and_rejects_others` |
+
+Pending (Phase 2, native tap — on-device): "Stream a transcript of the system
+output via the native tap", "Output capture fails clearly when permission is
+denied", "Record the system output to a file", "Realtime translation of the
+system output", "The capture source is reported with its config origin"
+(the last needs the `[audio.capture]` config keys added with realtime/record
+`--source` in Phase 1b).
+
 ## Running the coverage
 
 ```bash

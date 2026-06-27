@@ -112,7 +112,9 @@ are installed but need a cross libav toolchain.
 speak say "Olá mundo"                                   # TTS → native CoreAudio playback
 speak say --instruct "Female, Young Adult, British Accent" -o out.mp3   # voice design (23 tags)
 speak say --voice <saved-name> "..."                    # voice clone
-speak transcribe audio.mp3                              # STT
+speak transcribe audio.mp3                              # STT (file, one-shot)
+speak transcribe --stream                              # live mic → incremental transcript (ADR-0014)
+speak transcribe --stream --source output              # transcribe the PC output (native tap, Phase 2)
 speak translate audio.mp3 --format srt                  # translate (+ srt/vtt)
 speak realtime --translate --to fr --instruct "Female, British Accent"   # live SSE translation
 speak realtime -d <id> --no-vad --echo                  # pin input device (ADR-0011), gate off, echo test
@@ -130,6 +132,13 @@ Global flags: `-H/--host -K/--api-key -L/--lang -C/--voice -J/--json -q/--quiet 
 `-d/--device <id>` pins the input device (ADR-0011 — `--device` rebinds the HAL default input);
 `-x/--no-vad` + `-F/--vad-floor <dBFS>` control the silence gate; `-I/--input-channel <n>` (also
 `[audio.input].channel`) captures one channel of a multichannel interface (ADR-0013, e.g. SSL 12).
+**Streaming transcribe** (`transcribe -S/--stream`, ADR-0014): live capture → SSE
+`/v1/realtime/translate` with `translate=false`, prints only `transcript` frames (no re-voicing/playback);
+shares the realtime capture flags (`-d -I -c/--chunk -x -F`). `-s/--source input|output` (ADR-0015)
+selects the capture side: `input` (mic/line-in, default) or `output` (host/sound-card playback).
+`output` uses a **native macOS Core Audio tap** (macOS 14.4+, Phase 2); until that lands, route the
+output to a virtual-loopback device (**BlackHole**) and capture it as an input
+(`--source input -d <blackhole-id>`) — the command prints that hint if `--source output` is unavailable.
 
 ---
 
