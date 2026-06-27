@@ -15,6 +15,60 @@
 
 package schemas
 
+// ---------------------------------------------------------------------------
+// Primitive ValueObjects (calisthenics.wrap-primitives).
+//
+// These name the otherwise-bare primitive fields of the configuration DTOs so
+// the object-calisthenics "wrap primitives" rule is satisfied without altering
+// the effective contract: each wrapper is a transparent alias of the same
+// underlying primitive (`string` / `number` / `bool`), so unifying a field with
+// its wrapper is definitionally identical to unifying it with the bare keyword.
+// Constraints are deliberately NOT tightened here — the catalog mirrors the flat
+// ADR-0006 TOML, and narrowing (e.g. a `#FfmpegLogLevel` enum) would change the
+// schema these configs validate against.
+// DDD role: ValueObject
+// ---------------------------------------------------------------------------
+
+// #GenParams tuning scalars (unconstrained server knobs).
+#GuidanceScale:       number
+#TimeShift:           number
+#LayerPenaltyFactor:  number
+#PositionTemperature: number
+#ClassTemperature:    number
+#DenoiseLevel:        number
+#AudioChunkThreshold: number
+#PreprocessPrompt:    bool
+#PostprocessOutput:   bool
+
+// Adapter SSE frame payloads.
+#FrameText:     string
+#FrameAudioB64: string
+
+// [server] knobs.
+#Http2Enabled: bool
+#UserAgent:    string
+
+// [tts] knob.
+#InstructText: string
+
+// [audio.input] knobs.
+#InputDeviceName: string
+#VadEnabled:      bool
+
+// [ffmpeg] knobs.
+#Resampler:       string
+#ResampleQuality: string
+#DitherEnabled:   bool
+#FfmpegSampleFmt: string
+#FfmpegLogLevel:  string
+#ExtraFilters:    string
+
+// [general] knobs.
+#ColorEnabled: bool
+#TempDir:      string
+#LogTarget:    string
+#ConfigPath:   string
+
 // #GenParams is the value object of server generation-tuning knobs (FR-4 /
 // ADR-0004 / tasks T013). Every field is optional (default unset). The only
 // accepted CANONICAL key for step count is `num_step` (CLI alias `steps`);
@@ -22,16 +76,16 @@ package schemas
 // DDD role: ValueObject
 #GenParams: {
 	num_step?:              int & >0 // alias: steps
-	guidance_scale?:        number
-	t_shift?:               number
-	layer_penalty_factor?:  number
-	position_temperature?:  number
-	class_temperature?:     number
-	denoise?:               number
-	preprocess_prompt?:     bool
-	postprocess_output?:    bool
+	guidance_scale?:        #GuidanceScale
+	t_shift?:               #TimeShift
+	layer_penalty_factor?:  #LayerPenaltyFactor
+	position_temperature?:  #PositionTemperature
+	class_temperature?:     #ClassTemperature
+	denoise?:               #DenoiseLevel
+	preprocess_prompt?:     #PreprocessPrompt
+	postprocess_output?:    #PostprocessOutput
 	audio_chunk_duration?:  number & >0
-	audio_chunk_threshold?: number
+	audio_chunk_threshold?: #AudioChunkThreshold
 }
 
 // #PcmSampleFormat enumerates the raw interleaved PCM sample formats the libav
@@ -59,8 +113,8 @@ package schemas
 // DTO, NOT a domain type; it is modelled here only for schema completeness.
 #RealtimeFrame: {
 	type:       #RealtimeFrameType
-	text?:      string
-	audio_b64?: string
+	text?:      #FrameText
+	audio_b64?: #FrameAudioB64
 	format?:    #SampleFormat
 	seq?:       int & >=0
 }
@@ -93,8 +147,8 @@ package schemas
 	pool_max_idle_per_host?: int & >=0
 	pool_idle_timeout_secs?: int & >=0
 	tcp_keepalive_secs?:     int & >=0
-	http2?:                  bool
-	user_agent?:             string
+	http2?:                  #Http2Enabled
+	user_agent?:             #UserAgent
 }
 
 // [tts] + [tts.gen].
@@ -104,7 +158,7 @@ package schemas
 	format:    #SampleFormat | *"mp3"
 	model:     string & !="" | *"tts-1"
 	speed?:    #Speed
-	instruct?: string
+	instruct?: #InstructText
 	native:    bool | *false
 	// TOML key stays `gen` (the `[tts.gen]` section); the Rust projection renames
 	// the struct field to `gen_params` (serde `rename = "gen"`) because `gen` is a
@@ -140,7 +194,7 @@ package schemas
 // the CLI could; the repeatable `--output-device` flag overrides this default
 // per invocation under the usual flag > env > toml precedence.
 #AudioOutput: {
-	device?:        string | [...string]
+	device?: string | [...string]
 	volume?:        number & >=0 & <=1 // drives mainMixerNode.outputVolume
 	rate?:          int & >0           // device nominal hardware rate
 	sample_rate?:   int & >0           // resample target fed to the mixer
@@ -152,23 +206,23 @@ package schemas
 // [audio.input]. `device` is a device NAME (resolved to an AudioDeviceID),
 // matching [audio.output].device — never a numeric index.
 #AudioInput: {
-	device?:              string
+	device?:              #InputDeviceName
 	sample_rate:          int & >0 | *16000
 	channels:             int & >0 | *1
 	chunk_secs:           number & >0 | *5
 	silence_threshold_db: number | *-40
-	vad?:                 bool
+	vad?:                 #VadEnabled
 }
 
 // [ffmpeg].
 #Ffmpeg: {
 	threads?:          int & >=0
-	resampler?:        string
-	resample_quality?: string
-	dither?:           bool
-	sample_fmt?:       string
-	log_level?:        string
-	extra_filters?:    string
+	resampler?:        #Resampler
+	resample_quality?: #ResampleQuality
+	dither?:           #DitherEnabled
+	sample_fmt?:       #FfmpegSampleFmt
+	log_level?:        #FfmpegLogLevel
+	extra_filters?:    #ExtraFilters
 }
 
 // [realtime]. `translate` (SPEAK_RT_TRANSLATE) toggles translate-vs-passthrough
@@ -189,14 +243,14 @@ package schemas
 // `health_*` trio drives the upstream watchdog + self-recovery. All are
 // env-overridable (FR-18), some with bespoke env names (SPEAK_HEALTH_TIMEOUT).
 #Daemon: {
-	socket:           string & !="" | *"~/.speak/speak.sock" // SPEAK_DAEMON_SOCKET
-	pidfile:          string & !="" | *"~/.speak/speak.pid"  // SPEAK_DAEMON_PIDFILE
-	idle_timeout?:    int & >=0                              // SPEAK_DAEMON_IDLE_TIMEOUT
-	autostart:        bool | *false                          // SPEAK_DAEMON_AUTOSTART
-	kill_grace_ms:    int & >=0 | *3000                      // SPEAK_DAEMON_KILL_GRACE_MS
-	health_interval:  int & >=0 | *15                        // SPEAK_DAEMON_HEALTH_INTERVAL (0 = off)
-	health_timeout:   int & >0 | *5                          // SPEAK_HEALTH_TIMEOUT
-	health_fails:     int & >0 | *3                          // SPEAK_DAEMON_HEALTH_FAILS
+	socket:          string & !="" | *"~/.speak/speak.sock" // SPEAK_DAEMON_SOCKET
+	pidfile:         string & !="" | *"~/.speak/speak.pid"  // SPEAK_DAEMON_PIDFILE
+	idle_timeout?:   int & >=0                              // SPEAK_DAEMON_IDLE_TIMEOUT
+	autostart:       bool | *false                          // SPEAK_DAEMON_AUTOSTART
+	kill_grace_ms:   int & >=0 | *3000                      // SPEAK_DAEMON_KILL_GRACE_MS
+	health_interval: int & >=0 | *15                        // SPEAK_DAEMON_HEALTH_INTERVAL (0 = off)
+	health_timeout:  int & >0 | *5                          // SPEAK_HEALTH_TIMEOUT
+	health_fails:    int & >0 | *3                          // SPEAK_DAEMON_HEALTH_FAILS
 }
 
 // [http] — non-OpenAI chat-MT endpoint and the save directory for `-o`/saved
@@ -230,8 +284,8 @@ package schemas
 #General: {
 	quiet:        bool | *false
 	json:         bool | *false
-	color?:       bool
-	temp_dir?:    string
-	log?:         string
-	config_path?: string
+	color?:       #ColorEnabled
+	temp_dir?:    #TempDir
+	log?:         #LogTarget
+	config_path?: #ConfigPath
 }
