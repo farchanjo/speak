@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 360" width="1280" height="360" role="img" aria-label="speak — OpenAI-compatible speech CLI">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#13171f"/>
+      <stop offset="1" stop-color="#0a0c10"/>
+    </linearGradient>
+    <linearGradient id="wave" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0"   stop-color="#ff2d2d"/>
+      <stop offset="0.55" stop-color="#ff5a36"/>
+      <stop offset="1"   stop-color="#ffb13b"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d6dee8"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- backdrop -->
+  <rect x="0" y="0" width="1280" height="360" rx="28" fill="url(#bg)"/>
+  <rect x="1.5" y="1.5" width="1277" height="357" rx="27" fill="none" stroke="#ff5a36" stroke-opacity="0.18" stroke-width="2"/>
+
+  <!-- hexagon watermark: a nod to the hexagonal architecture -->
+  <g transform="translate(958,180)" stroke="#ff7a3b" stroke-opacity="0.10" fill="none" stroke-width="2">
+    <polygon points="150,0 75,130 -75,130 -150,0 -75,-130 75,-130"/>
+    <polygon points="100,0 50,87 -50,87 -100,0 -50,-87 50,-87"/>
+    <polygon points="52,0 26,45 -26,45 -52,0 -26,-45 26,-45"/>
+  </g>
+
+  <!-- waveform -->
+  <g fill="url(#wave)" filter="url(#glow)">
+    <rect x="672"  y="166" width="10" height="28"  rx="5"/>
+    <rect x="690"  y="150" width="10" height="60"  rx="5"/>
+    <rect x="708"  y="128" width="10" height="104" rx="5"/>
+    <rect x="726"  y="98"  width="10" height="164" rx="5"/>
+    <rect x="744"  y="138" width="10" height="84"  rx="5"/>
+    <rect x="762"  y="74"  width="10" height="212" rx="5"/>
+    <rect x="780"  y="44"  width="10" height="272" rx="5"/>
+    <rect x="798"  y="112" width="10" height="136" rx="5"/>
+    <rect x="816"  y="28"  width="10" height="304" rx="5"/>
+    <rect x="834"  y="120" width="10" height="120" rx="5"/>
+    <rect x="852"  y="60"  width="10" height="240" rx="5"/>
+    <rect x="870"  y="104" width="10" height="152" rx="5"/>
+    <rect x="888"  y="40"  width="10" height="280" rx="5"/>
+    <rect x="906"  y="118" width="10" height="124" rx="5"/>
+    <rect x="924"  y="22"  width="10" height="316" rx="5"/>
+    <rect x="942"  y="92"  width="10" height="176" rx="5"/>
+    <rect x="960"  y="50"  width="10" height="260" rx="5"/>
+    <rect x="978"  y="124" width="10" height="112" rx="5"/>
+    <rect x="996"  y="68"  width="10" height="224" rx="5"/>
+    <rect x="1014" y="34"  width="10" height="292" rx="5"/>
+    <rect x="1032" y="116" width="10" height="128" rx="5"/>
+    <rect x="1050" y="78"  width="10" height="204" rx="5"/>
+    <rect x="1068" y="132" width="10" height="96"  rx="5"/>
+    <rect x="1086" y="96"  width="10" height="168" rx="5"/>
+    <rect x="1104" y="146" width="10" height="68"  rx="5"/>
+    <rect x="1122" y="112" width="10" height="136" rx="5"/>
+    <rect x="1140" y="156" width="10" height="48"  rx="5"/>
+    <rect x="1158" y="134" width="10" height="92"  rx="5"/>
+    <rect x="1176" y="162" width="10" height="36"  rx="5"/>
+    <rect x="1194" y="152" width="10" height="56"  rx="5"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="86" y="178" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="148" font-weight="800" letter-spacing="-4" fill="url(#ink)">speak<tspan fill="#ff3b30">.</tspan></text>
+
+  <!-- tagline -->
+  <text x="94" y="224" font-family="'SF Mono','JetBrains Mono',Menlo,Consolas,monospace" font-size="25" letter-spacing="0.5" fill="#9aa7b4">OpenAI-compatible speech client</text>
+
+  <!-- feature chips -->
+  <g font-family="'SF Mono','JetBrains Mono',Menlo,Consolas,monospace" font-size="18" font-weight="600">
+    <g>
+      <rect x="92"  y="280" width="74"  height="36" rx="18" fill="#ff5a36" fill-opacity="0.12" stroke="#ff5a36" stroke-opacity="0.55"/>
+      <text x="129" y="304" text-anchor="middle" fill="#ffb59b">TTS</text>
+    </g>
+    <g>
+      <rect x="178" y="280" width="74"  height="36" rx="18" fill="#ff5a36" fill-opacity="0.12" stroke="#ff5a36" stroke-opacity="0.55"/>
+      <text x="215" y="304" text-anchor="middle" fill="#ffb59b">STT</text>
+    </g>
+    <g>
+      <rect x="264" y="280" width="128" height="36" rx="18" fill="#ff5a36" fill-opacity="0.12" stroke="#ff5a36" stroke-opacity="0.55"/>
+      <text x="328" y="304" text-anchor="middle" fill="#ffb59b">Translate</text>
+    </g>
+    <g>
+      <rect x="404" y="280" width="124" height="36" rx="18" fill="#ff5a36" fill-opacity="0.12" stroke="#ff5a36" stroke-opacity="0.55"/>
+      <text x="466" y="304" text-anchor="middle" fill="#ffb59b">Realtime</text>
+    </g>
+    <g>
+      <rect x="540" y="280" width="112" height="36" rx="18" fill="#ff5a36" fill-opacity="0.12" stroke="#ff5a36" stroke-opacity="0.55"/>
+      <text x="596" y="304" text-anchor="middle" fill="#ffb59b">Daemon</text>
+    </g>
+  </g>
+
+  <!-- corner mono mark -->
+  <text x="1188" y="328" text-anchor="end" font-family="'SF Mono',Menlo,monospace" font-size="16" fill="#5a6573">rust · hexagonal · macOS</text>
+</svg>
