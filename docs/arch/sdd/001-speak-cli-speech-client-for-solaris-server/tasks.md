@@ -248,7 +248,13 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   Repository port (`add`/`list`/`remove`); reading the reference audio file stays
   a driving-adapter concern (the use case receives the bytes). Unit-tested over
   the port doubles with an add->list->remove round-trip; CLI wiring is T051.)
-- [ ] T043 `[application]` `record` use case (capture -> WAV/FLAC file).
+- [x] T043 `[application]` `record` use case (capture -> WAV/FLAC file).
+  (`src/application/record.rs`: `RecordUseCase` orchestrates `AudioSource`
+  capture -> `AudioDecoder` resample (only when the requested `--sample-rate`/
+  `--channels` differ from the device's) -> `AudioEncoder` WAV/FLAC mux (FR-9).
+  `RecordOutcome` returns the muxed bytes + frames/secs so the driving adapter
+  writes `--output`. Unit-tested over the port doubles (no-resample WAV and
+  resampled FLAC paths); the `speak record` CLI wiring is T055.)
 - [ ] T044 `[application]` `realtime` use case with the three **Strategy** modes
   (`translate`/`no-translate`/`echo`), SSE or chunked, multi-output.
 - [ ] T045 `[application]` application **Facade** shared by CLI and daemon.

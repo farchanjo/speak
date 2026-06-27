@@ -9,12 +9,14 @@
 //! shared by the CLI and the daemon driving adapters (ADR-0005).
 
 pub mod playback;
+pub mod record;
 pub mod say;
 pub mod transcribe;
 pub mod translate;
 pub mod voices;
 
 pub use playback::PlaybackStats;
+pub use record::{RecordOptions, RecordOutcome, RecordUseCase};
 pub use say::{SayOptions, SayOutcome, SayUseCase};
 pub use transcribe::TranscribeUseCase;
 pub use translate::TranslateUseCase;
