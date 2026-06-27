@@ -19,7 +19,7 @@ LOGDIR  := $(HOME)/.speak/logs
 
 .DEFAULT_GOAL := help
 .PHONY: help build build-release build-dbg run install link \
-        check clippy fmt fmt-fix test test-int watch expand doc lint gates \
+        check clippy clippy-strict clippy-fix fmt fmt-fix test test-int watch expand doc lint gates \
         debug debug-bt debug-panic debug-attach \
         spec validate verify analyze \
         release release-all \
@@ -51,8 +51,14 @@ link: ## Refresh bin/speak symlink -> target/release/speak
 check: ## Fast type-check (no codegen)
 	$(CARGO) check --all-targets
 
-clippy: ## Lint (deny warnings)
-	$(CARGO) clippy --all-targets -- -D warnings
+clippy: ## Verbose lint: all-group+rustc DENY, pedantic/nursery/cargo WARN (see Cargo.toml [lints])
+	$(CARGO) clippy --all-targets --all-features
+
+clippy-strict: ## Zero-tolerance: promote every warn (incl. pedantic/nursery) to a hard error
+	$(CARGO) clippy --all-targets --all-features -- -D warnings
+
+clippy-fix: ## Auto-apply machine-applicable clippy suggestions to the working tree
+	$(CARGO) clippy --fix --all-targets --all-features --allow-dirty --allow-staged
 
 fmt: ## Check formatting
 	$(CARGO) fmt --all -- --check

@@ -80,7 +80,9 @@ ffmpeg/afplay/ffplay.
 |------|---------|
 | Debug build | `make build` |
 | Release build | `make build-release` → `target/release/speak` (lto, strip); `bin/speak` symlinks it |
-| Lint | `make lint` (clippy `-D warnings` + fmt check) · `make fmt-fix` to apply |
+| Lint | `make lint` (verbose clippy + fmt check) · `make fmt-fix` to apply · `make clippy-fix` to auto-apply suggestions |
+| Lint (verbose) | `make clippy` — `all`+rustc groups **deny**, `pedantic`/`nursery`/`cargo` **warn** (config in `Cargo.toml [lints]`; tokio-noisy lints allowed there) |
+| Lint (strict) | `make clippy-strict` — promotes every warn to a hard error (cleanup sessions only) |
 | Test | `make test` (259 hermetic) · `make test-int` (live vs `$SPEAK_HOST`, skips if down) |
 | Spec gates | `make spec` (speckit validate/verify/analyze) |
 | **Full pre-commit bar** | `make gates` (build-release + clippy + fmt + test + spec) — green before any commit |
@@ -192,7 +194,7 @@ disappears, restore with **`bash /root/omnivoice/ensure_sse.sh`** (idempotent).
 
 ## 9. Conventions
 
-- Methods < 30 lines; no dead code; no duplication; clippy `-D warnings` clean.
+- Methods < 30 lines; no dead code; no duplication; `make clippy` clean (no deny-level hits).
 - Angular Conventional commits; **small contextual commits**; docs + code committed together.
   Don't push unless asked.
 - en-US for all code/docs/commits.

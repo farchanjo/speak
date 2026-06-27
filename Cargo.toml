@@ -85,6 +85,60 @@ objc2-core-foundation = { version = "0.3.2", features = ["CFString", "CFBase"] }
 objc2-core-audio-types = { version = "0.3.2", features = ["CoreAudioBaseTypes"] }
 objc2-audio-toolbox = { version = "0.3.2", features = ["AudioComponent", "AudioUnitProperties"] }
 
+# ---------------------------------------------------------------------------
+# Lint baseline (declarative, applies to every target — bin, lib, tests).
+# Tiers:
+#   * `all` group + rustc warnings  -> DENY (real bugs; codebase already clean
+#     here, so `make clippy` keeps the same gate rigor it had under -D warnings).
+#   * `pedantic` / `nursery` / `cargo` -> WARN (the "extremely verbose" layer:
+#     visible, non-blocking; lets `make clippy` surface everything without
+#     breaking the build/gates).
+# Careful-with-tokio: the async/runtime lints below are EXPLICITLY allowed
+# because they fire spuriously on this codebase's tokio patterns (single-thread
+# !Send tasks, async state machines, guard handling). `await_holding_lock` is
+# intentionally NOT allowed — that one catches a genuine tokio footgun.
+# Override one site with `#[expect(clippy::lint, reason = "…")]`, not a blanket
+# allow here. Group keys use priority -1 so the individual allows win.
+# ---------------------------------------------------------------------------
+[lints.rust]
+rust_2024_compatibility = { level = "warn", priority = -1 }  # group -> low priority
+unused_qualifications    = "warn"
+unreachable_pub          = "warn"
+# unsafe is unavoidable here (libav + CoreAudio FFI + 2024 env::set_var), so it
+# stays allowed; per-block discipline is enforced by edition-2024 defaults.
+unsafe_code = "allow"
+
+[lints.clippy]
+# Bug-catching groups — deny (no regression vs the old blanket -D warnings).
+all = { level = "deny", priority = -1 }
+# Verbose advisory groups — warn only.
+pedantic = { level = "warn", priority = -1 }
+nursery  = { level = "warn", priority = -1 }
+cargo    = { level = "warn", priority = -1 }
+
+# --- tokio / async false-positives (the "careful with tokio" allows) ---
+future_not_send             = "allow"  # nursery: !Send daemon/realtime futures are fine
+cognitive_complexity        = "allow"  # nursery: async state machines inflate this
+significant_drop_tightening = "allow"  # nursery: noisy around tokio guard scopes
+significant_drop_in_scrutinee = "allow" # noisy on select!/match over guarded state
+redundant_pub_crate         = "allow"  # nursery: clashes with unreachable_pub above
+missing_const_for_fn        = "allow"  # nursery: spurious on async-adjacent fns
+option_if_let_else          = "allow"  # nursery: style churn, low signal
+
+# --- pedantic noise on an application binary (not a published library) ---
+module_name_repetitions  = "allow"  # hexagonal layering repeats module names by design
+must_use_candidate       = "allow"
+missing_errors_doc       = "allow"
+missing_panics_doc       = "allow"
+cast_precision_loss      = "allow"  # audio sample-rate / PCM math
+cast_possible_truncation = "allow"
+cast_sign_loss           = "allow"
+cast_possible_wrap       = "allow"
+
+# --- cargo group: things outside our control / not relevant to a local bin ---
+multiple_crate_versions = "allow"  # transitive duplicate versions (objc2, windows-sys…)
+cargo_common_metadata   = "allow"  # not published to crates.io
+
 [profile.release]
 opt-level = 3
 lto = true
