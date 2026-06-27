@@ -79,7 +79,8 @@ chunk_secs = 5.0
 [daemon]
 # socket = "~/.speak/speak.sock"
 idle_timeout = 0              # auto-stop after N idle seconds (0 = never)
-autostart = false             # auto-start a daemon for CLI calls
+autostart = false             # spawn a background daemon (this binary's own
+                              # `daemon` subcommand) for CLI calls; off by default
 
 [general]
 quiet = false

@@ -62,10 +62,16 @@ impl<'a> Factory<'a> {
         Self { cfg }
     }
 
-    /// Assemble the application Facade over the three concrete adapter roles.
+    /// Assemble the application Facade over the three concrete adapter roles
+    /// (the `openai` speech adapter holding the one warm keep-alive `reqwest`
+    /// pool, the `coreaudio` I/O adapter, and the `libav` codec adapter).
     ///
     /// `native` routes `say` through the server's `/tts` endpoint; every other
-    /// command leaves it at the configured `[tts].native` default.
+    /// command leaves it at the configured `[tts].native` default. The `[retry]`
+    /// policy resolves in `self.cfg.retry.policy`; wrapping each network port in
+    /// its port-preserving retry decorator is the pending `[adapter:retry]` task
+    /// (T046) — the Facade is already generic over the ports, so a decorated
+    /// adapter drops in here without touching the use cases.
     fn facade(&self, native: bool) -> Result<AppFacade> {
         let speech = OpenAiAdapter::new(self.cfg)?.with_native(native || self.cfg.tts.native);
         let codec = LibavCodec::new(DecodeOptions {
@@ -84,8 +90,8 @@ async fn dispatch(cli: Cli, cfg: &Config) -> Result<()> {
     let out = presenter.as_mut();
     match cli.command {
         Command::Check => cli::check::check(cfg, out),
-        Command::Health => cli::check::health(cfg, out).await,
-        Command::Devices(args) => cli::devices::run(&args),
+        Command::Health => cli::check::health(&factory.facade(false)?, out).await,
+        Command::Devices(_) => cli::devices::run(out),
         Command::Config { action } => cli::config::run(action, cfg, out),
         Command::Say(args) => {
             cli::say::run(&factory.facade(args.native)?, cfg, &globals, args, out).await

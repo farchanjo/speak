@@ -1,77 +1,54 @@
 //! `devices` handler (T056): enumerate input/output audio devices (FR-10).
 //!
 //! A thin CLI adapter that reads the `coreaudio` device-enumeration adapter
-//! directly (no dedicated use case, per ADR-0003) and prints each device's
-//! `AudioDeviceID`, name, channels, rate, and UID — or a JSON array with `--json`.
+//! directly (no dedicated use case, per ADR-0003) and emits a single device
+//! Table through the [`Presenter`] port — one row per device with its
+//! `AudioDeviceID`, name, channels, rate, default flags, and UID. The console
+//! renderer aligns it; the json renderer serialises it (FR-16 / ADR-0009).
 
 use anyhow::Result;
 
 use speak::adapters::coreaudio;
 use speak::ports::audio::AudioDevice;
+use speak::ports::presenter::{Presenter, Table};
 
-use super::args::DevicesArgs;
-
-/// Run the `devices` subcommand.
-pub fn run(args: &DevicesArgs) -> Result<()> {
+/// Run the `devices` subcommand, emitting the device inventory through the
+/// Presenter.
+pub fn run(presenter: &mut dyn Presenter) -> Result<()> {
     let devices = coreaudio::enumerate()?;
-    if args.json {
-        let items: Vec<serde_json::Value> = devices.iter().map(device_json).collect();
-        println!("{}", serde_json::to_string_pretty(&items)?);
-    } else {
-        println!("Output devices:");
-        print_direction(&devices, false);
-        println!("Input devices:");
-        print_direction(&devices, true);
+    let mut table = Table::new([
+        "id",
+        "name",
+        "in_ch",
+        "out_ch",
+        "rate_hz",
+        "default_in",
+        "default_out",
+        "uid",
+    ]);
+    for device in &devices {
+        table = table.row(device_row(device));
     }
-    Ok(())
+    presenter.table(&table)
 }
 
-/// Render one device as a JSON object (FR-10 fields).
-fn device_json(d: &AudioDevice) -> serde_json::Value {
-    serde_json::json!({
-        "id": d.id.0,
-        "uid": d.uid,
-        "name": d.name,
-        "input_channels": d.input_channels,
-        "output_channels": d.output_channels,
-        "sample_rate": d.sample_rate,
-        "default_input": d.is_default_input,
-        "default_output": d.is_default_output,
-    })
+/// Project one device onto its Table row (FR-10 fields).
+fn device_row(d: &AudioDevice) -> [String; 8] {
+    [
+        d.id.0.to_string(),
+        d.name.clone(),
+        d.input_channels.to_string(),
+        d.output_channels.to_string(),
+        d.sample_rate.to_string(),
+        yes_no(d.is_default_input),
+        yes_no(d.is_default_output),
+        d.uid.clone(),
+    ]
 }
 
-/// Print every device participating in the requested direction.
-fn print_direction(devices: &[AudioDevice], input: bool) {
-    let mut shown = false;
-    for d in devices.iter().filter(|d| directional(d, input)) {
-        shown = true;
-        println!("{}", device_line(d, input));
-    }
-    if !shown {
-        println!("  (none)");
-    }
-}
-
-/// Whether `d` participates in the requested direction (input vs output).
-fn directional(d: &AudioDevice, input: bool) -> bool {
-    if input { d.is_input() } else { d.is_output() }
-}
-
-/// One device table row (`* [id] name  Nch @ rate Hz  uid=...`).
-fn device_line(d: &AudioDevice, input: bool) -> String {
-    let (default, channels) = if input {
-        (d.is_default_input, d.input_channels)
-    } else {
-        (d.is_default_output, d.output_channels)
-    };
-    let mark = if default { '*' } else { ' ' };
-    format!(
-        "{mark} [{id:>3}] {name:<28} {channels:>2}ch @ {rate:>5} Hz  uid={uid}",
-        id = d.id.0,
-        name = d.name,
-        rate = d.sample_rate,
-        uid = d.uid,
-    )
+/// Render a boolean default-device flag.
+fn yes_no(flag: bool) -> String {
+    if flag { "yes" } else { "no" }.to_owned()
 }
 
 #[cfg(test)]
@@ -93,33 +70,20 @@ mod tests {
     }
 
     #[test]
-    fn device_line_marks_default_and_shows_id_uid_channels() {
-        let line = device_line(&sample_device(), false);
-        assert!(
-            line.starts_with('*'),
-            "default output should be starred: {line}"
+    fn device_row_exposes_fr10_fields() {
+        let row = device_row(&sample_device());
+        assert_eq!(
+            row,
+            [
+                "7".to_owned(),
+                "Speakers".to_owned(),
+                "0".to_owned(),
+                "2".to_owned(),
+                "48000".to_owned(),
+                "no".to_owned(),
+                "yes".to_owned(),
+                "UID7".to_owned(),
+            ]
         );
-        assert!(line.contains("[  7]"), "{line}");
-        assert!(line.contains("uid=UID7"), "{line}");
-        assert!(line.contains("2ch"), "{line}");
-        assert!(line.contains("48000 Hz"), "{line}");
-    }
-
-    #[test]
-    fn device_line_input_uses_input_channels_and_default() {
-        let line = device_line(&sample_device(), true);
-        assert!(line.starts_with(' '), "{line}");
-        assert!(line.contains(" 0ch"), "{line}");
-    }
-
-    #[test]
-    fn device_json_exposes_fr10_fields() {
-        let v = device_json(&sample_device());
-        assert_eq!(v["id"], 7);
-        assert_eq!(v["uid"], "UID7");
-        assert_eq!(v["output_channels"], 2);
-        assert_eq!(v["sample_rate"], 48_000);
-        assert_eq!(v["default_output"], true);
-        assert_eq!(v["default_input"], false);
     }
 }

@@ -3,6 +3,12 @@
 //! Both variants expose the same `proxy` / `proxy_multipart` surface so command
 //! handlers are agnostic to whether the HTTP runs in-process or is forwarded to
 //! the persistent daemon over its Unix socket.
+//!
+//! Daemon **autostart** is OFF by default and gated behind the
+//! `[daemon].autostart` config flag (`SPEAK_DAEMON_AUTOSTART`): only when it is
+//! enabled does [`Transport::connect`] spawn a background daemon. The spawn runs
+//! THIS binary's own `daemon` subcommand ([`autostart`]) — never an external
+//! media tool — so the zero-process-exec-for-media invariant (ADR-0001) holds.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -84,6 +90,10 @@ impl Transport {
     }
 }
 
+/// Spawn a background daemon by re-executing THIS binary's `daemon` subcommand,
+/// then wait briefly for its socket to come up. Reached only when
+/// `[daemon].autostart` is enabled (see [`Transport::connect`]); the spawned
+/// process is our own binary, not any external/media tool (ADR-0001).
 async fn autostart(socket: &Path) -> Option<Transport> {
     let exe = std::env::current_exe().ok()?;
     std::process::Command::new(exe)

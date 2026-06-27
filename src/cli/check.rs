@@ -2,21 +2,32 @@
 //!
 //! `check` reports the host plus the local `accel` acceleration probe and the
 //! resolved config/log/socket paths (offline, cross-cutting data per ADR-0003).
-//! `health` prints the server's `/health` JSON over the request transport. Both
-//! emit their RESULT through the [`Presenter`] port (ADR-0009) — never `println!`.
+//! `health` probes the server through the `ServerProbe` port via the Facade's
+//! `check`/`health` use case (T047/T054). Both emit their RESULT through the
+//! [`Presenter`] port (ADR-0009) — never `println!`.
 
 use anyhow::Result;
 
 use speak::config::Config;
 use speak::ports::presenter::{Presenter, Report};
-use speak::transport::Transport;
 use speak::{accel, logging, paths};
 
-/// Run the `health` subcommand: print the server `/health` JSON.
-pub async fn health(cfg: &Config, presenter: &mut dyn Presenter) -> Result<()> {
-    let transport = Transport::connect(cfg).await?;
-    let value = transport.proxy("GET", "/health", None).await?.into_json()?;
-    presenter.line(&serde_json::to_string_pretty(&value)?)
+use super::AppFacade;
+
+/// Run the `health` subcommand: probe server health, models, and realtime
+/// capability through the `check`/`health` use case (FR-14).
+pub async fn health(facade: &AppFacade, presenter: &mut dyn Presenter) -> Result<()> {
+    let outcome = facade.health().await?;
+    let realtime = if outcome.realtime {
+        "supported"
+    } else {
+        "not supported (chunked fallback)"
+    };
+    let report = Report::titled("health")
+        .entry("healthy", outcome.healthy.to_string())
+        .entry("models", outcome.models.join(", "))
+        .entry("realtime", realtime);
+    presenter.report(&report)
 }
 
 /// Run the `check` subcommand: report host + local acceleration + paths.

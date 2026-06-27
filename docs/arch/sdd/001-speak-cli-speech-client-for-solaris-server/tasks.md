@@ -334,11 +334,11 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   `transcribe`, `translate`, `realtime`, `voices`, `daemon`, `check`, `health`,
   `config`, `completions`; global flags with `env=`; `ValueEnum` choices. The
   `record` and `devices` commands, the repeatable `--output-device`, the
-  per-call `say --voice` / `realtime --voice`, the `--translate`/
-  `--no-translate`/`--echo` realtime modes (replacing the current
-  `--repeat`/`--speak`), `--list-designs`, and the global `--json` flag are NOT
-  yet present and are added by T051/T055/T056.
-- [ ] T051 `[cli]` wire each subcommand to its use case (no business logic in
+  per-call `say --voice` clone, the `--translate`/`--no-translate`/`--echo`
+  realtime modes (replacing the former `--repeat`/`--speak`), `--list-designs`,
+  the global `--json` flag, and the `-v`/`--verbose` count are now present
+  (added by T051/T055/T056).
+- [x] T051 `[cli]` wire each subcommand to its use case (no business logic in
   the CLI); add the repeatable `--output-device` on `say`/`realtime`; `say
   --voice` (per-call clone, distinct from the TTS `--voice`/`alloy`), `realtime
   --instruct/--voice` (output voice), `realtime --translate/--no-translate/
@@ -346,26 +346,43 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   command RESULT through the `Presenter` port (T024/T048) — converting the
   existing `println!` piles (`check`, `config show`, `--list-designs`,
   transcript/realtime output) — never raw `println!`/`eprintln!` (ADR-0009).
-  (Partial: `say`/`transcribe`/`translate`/`voices` now build the domain
-  `SpeechSpec`/`TranscribeRequest`/`Language` and drive the `openai` adapter
-  ports (`Synthesizer`/`Transcriber`/`Translator`/`VoiceRepository`) directly
-  in-process, replacing the raw `Transport` proxy for these four commands and
-  verified live against solaris (voice-design say + voices list). The
-  application-layer use cases (T040-T042), the daemon-forward / Facade
-  unification (T045/T053/T054), the per-call `--voice` clone, `--output-device`,
-  realtime-mode flags, and the global `--json` remain pending; `realtime`,
-  `health`, and the `daemon` server still use the flat `Transport`/`SpeechClient`
-  for now. The `translate` command is English-only here (the `Translator` port is
-  text-valued); subtitle output returns with the file-translate use case T041.)
+  (Every handler in `src/cli/` is now a thin driving adapter over the
+  application Facade: `say` builds the `SpeechSpec` and resolves the voice
+  Strategy (design / clone via the shared `cli::resolve_voice` / standard),
+  honours `--no-play`, `-o` save, and the repeatable `--output-device` fan-out;
+  `transcribe`/`translate` drive the file use cases; `voices` the repository;
+  `realtime` runs the `RealtimeUseCase` one chunk per loop with the exclusive
+  `--translate`/`--no-translate`/`--echo` group and `--output-device`; `health`
+  the `ServerProbe` use case. Every RESULT flows through the injected
+  `Box<dyn Presenter>` (console | json, selected from `--json`/`[general].json`)
+  — `--list-designs`, `voices list`, `config show` as Tables; `check`/`health`/
+  `say` metadata as Reports; transcripts/captions as `line`s — and DIAGNOSTICS
+  ride `tracing` (the `-v`/`--verbose` stderr layer + the rotating file), so no
+  raw `println!`/`eprintln!` remains in the CLI (`devices` also renders through
+  the Presenter as a single device Table). Non-English `realtime --to` still
+  degrades to the source transcript until the `chatmt` Translator Strategy (T039)
+  lands; subtitle (`srt`/`vtt`) file output returns with T041's subtitle path.)
 - [x] T052 `[adapter:daemon]` Unix-socket listener at `~/.speak/speak.sock`,
   length-prefixed framing, SSE pass-through, one-shot fallback (ADR-0005).
 - [ ] T053 `[adapter:daemon]` route framed requests through the shared
   application Facade (same use cases as the CLI).
-- [ ] T054 `[root]` `main.rs` composition root (**Factory**/DI): build the one
+- [x] T054 `[root]` `main.rs` composition root (**Factory**/DI): build the one
   warm async-openai client, construct the `RetryPolicy` from `[retry]` and wrap
   every network adapter with its port-preserving retry decorator (T046), wire
   the `check`/`health` use case to the `ServerProbe` adapter, wire all adapters
   into use cases, select CLI vs daemon.
+  (`src/main.rs` is now a pure composition root: it parses the CLI, sizes the
+  `-v`/`--verbose` diagnostics layer, loads the layered `Config`, and the
+  `Factory` builds the concrete adapter object graph — the `openai` adapter
+  holding the one warm keep-alive `reqwest` pool, `coreaudio`, `libav` — wired
+  into the application `SpeakFacade`; `build_presenter` selects the console/json
+  Presenter Strategy and injects one `Box<dyn Presenter>` per dispatch; `health`
+  is wired onto the `ServerProbe` use case; the `daemon` vs CLI selection is the
+  top-level command match. No `cmd_*` business logic remains in `main.rs`. The
+  `[retry]` policy resolves in `cfg.retry.policy` and the Facade is already
+  generic over the ports, so the pending port-preserving retry decorator
+  (`[adapter:retry]`, T046) drops in at this Factory without touching the use
+  cases. Routing the daemon server itself through the shared Facade is T053.)
 - [x] T055 `[cli]` wire `speak record` (`--output`, `--device`, `--format
   wav|flac`, `--duration`, `--sample-rate`, `--channels`) to the `record` use
   case (FR-9).
