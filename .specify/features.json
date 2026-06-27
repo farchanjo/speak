@@ -7,5 +7,14 @@
     "dir": "docs/arch/sdd/001-speak-cli-speech-client-for-solaris-server",
     "status": "implemented",
     "createdAt": "2026-06-26T19:42:52.280691Z"
+  },
+  {
+    "id": "019f0aef-2e68-7ce2-a73a-a84d50a47844",
+    "number": "002",
+    "slug": "streaming-transcribe-and-capture-source-selection",
+    "branch": "002-streaming-transcribe-and-capture-source-selection",
+    "dir": "docs/arch/sdd/002-streaming-transcribe-and-capture-source-selection",
+    "status": "analyzed",
+    "createdAt": "2026-06-27T21:14:34.984014Z"
   }
 ]

@@ -21,3 +21,9 @@
 {"mode":"enforce","op":"write","override":false,"path":"docs/arch/sdd/001-speak-cli-speech-client-for-solaris-server/tasks.md","ts":"2026-06-27T04:23:43.39639Z","verdict":"allow"}
 {"mode":"enforce","op":"write","override":false,"path":"tests/cli.rs","ts":"2026-06-27T06:10:12.712866Z","verdict":"deny"}
 {"mode":"enforce","op":"write","override":false,"path":"docs/arch/specs/acceptance-coverage.md","ts":"2026-06-27T06:10:12.716743Z","verdict":"allow"}
+{"mode":"enforce","op":"write","override":false,"path":"docs/arch/sdd/002-streaming-transcribe-and-capture-source-selection/spec.md","ts":"2026-06-27T21:14:34.999308Z","verdict":"allow"}
+{"mode":"enforce","op":"write","override":false,"path":"docs/arch/adr/0014-streaming-transcribe-and-capture-source-selection.md","ts":"2026-06-27T21:14:34.999765Z","verdict":"allow"}
+{"mode":"enforce","op":"write","override":false,"path":"docs/arch/schemas/streaming-transcribe-and-capture-source-selection.cue","ts":"2026-06-27T21:14:34.999956Z","verdict":"allow"}
+{"mode":"enforce","op":"write","override":false,"path":"docs/arch/specs/features/streaming-transcribe-and-capture-source-selection.feature","ts":"2026-06-27T21:14:35.000117Z","verdict":"allow"}
+{"mode":"enforce","op":"write","override":false,"path":"docs/arch/sdd/002-streaming-transcribe-and-capture-source-selection/plan.md","ts":"2026-06-27T21:18:19.402224Z","verdict":"allow"}
+{"mode":"enforce","op":"write","override":false,"path":"docs/arch/sdd/002-streaming-transcribe-and-capture-source-selection/tasks.md","ts":"2026-06-27T21:18:19.406098Z","verdict":"allow"}
