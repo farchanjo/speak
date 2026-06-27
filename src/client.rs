@@ -171,23 +171,34 @@ impl ProxyReply {
     }
 }
 
+/// Build one warm, pooled [`reqwest::Client`] from the `[server]` tuning knobs.
+///
+/// Shared by the flat [`SpeechClient`] and the `openai` adapter so both reuse an
+/// identically-configured keep-alive pool (ADR-0004). The adapter passes a clone
+/// of this client to `async-openai` *and* keeps one for the extended speech /
+/// `/tts` / voice-CRUD requests the typed API cannot express, so a single warm
+/// connection pool backs every call the adapter makes.
+pub fn build_http_client(s: &crate::config::Server) -> Result<Client> {
+    let mut builder = Client::builder()
+        .user_agent(s.user_agent.clone())
+        .pool_max_idle_per_host(s.pool_max_idle)
+        .pool_idle_timeout(Duration::from_secs(s.pool_idle_timeout))
+        .tcp_keepalive(Duration::from_secs(s.tcp_keepalive))
+        .tcp_nodelay(true)
+        .connect_timeout(Duration::from_secs(s.connect_timeout))
+        .timeout(Duration::from_secs(s.timeout));
+    if s.http2 {
+        builder = builder.http2_prior_knowledge();
+    }
+    builder.build().context("building HTTP client")
+}
+
 impl SpeechClient {
     /// Build a client from resolved configuration.
     pub fn new(cfg: &Config) -> Result<Self> {
         let s = &cfg.server;
-        let mut builder = Client::builder()
-            .user_agent(s.user_agent.clone())
-            .pool_max_idle_per_host(s.pool_max_idle)
-            .pool_idle_timeout(Duration::from_secs(s.pool_idle_timeout))
-            .tcp_keepalive(Duration::from_secs(s.tcp_keepalive))
-            .tcp_nodelay(true)
-            .connect_timeout(Duration::from_secs(s.connect_timeout))
-            .timeout(Duration::from_secs(s.timeout));
-        if s.http2 {
-            builder = builder.http2_prior_knowledge();
-        }
         Ok(Self {
-            http: builder.build().context("building HTTP client")?,
+            http: build_http_client(s)?,
             base: s.host.trim_end_matches('/').to_owned(),
             api_key: s.api_key.clone(),
             policy: cfg.retry.policy,

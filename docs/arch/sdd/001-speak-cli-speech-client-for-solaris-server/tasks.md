@@ -96,14 +96,35 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
 
 ## Driven adapters
 
-- [ ] T030 `[adapter:openai]` async-openai client (`with_api_base`/`with_api_key`);
+- [x] T030 `[adapter:openai]` async-openai client (`with_api_base`/`with_api_key`);
   typed requests for `/v1/models`, `/v1/audio/transcriptions`,
   `/v1/audio/translations`, voice CRUD (ADR-0004).
-- [ ] T031 `[adapter:openai]` `_byot` extended `/v1/audio/speech` + native `/tts`
+  (`src/adapters/openai/`: `OpenAiAdapter::new` is the Factory — it builds the
+  `async-openai` `Client<OpenAIConfig>` from `OpenAIConfig::default()
+  .with_api_base("{host}/v1").with_api_key(...)` and a tuned warm `reqwest` pool
+  (`client::build_http_client`, extracted + shared with the flat `SpeechClient`).
+  `Transcriber`/`Translator` drive the typed `audio().transcription()` /
+  `audio().translation()` groups via `create_raw` so every `response_format`
+  round-trips as bytes. async-openai 0.41 links `reqwest` 0.13 while this crate
+  is on 0.12, so the two `Client`s cannot share one instance — unifying the pool
+  is a composition-root concern (T054). The `audio` Cargo feature was added.)
+- [x] T031 `[adapter:openai]` `_byot` extended `/v1/audio/speech` + native `/tts`
   request via a fluent **Builder** (voice-design, clone, ref_text, gen-params);
   implements `Synthesizer`.
-- [ ] T032 `[adapter:openai]` `VoiceRepository` over `POST/GET/DELETE /voices`
+  (`src/adapters/openai/speech.rs`: async-openai 0.41 exposes no non-streaming
+  speech "bring-your-own-types" method and `Speech::create` discards the
+  `X-RTF`/`X-Audio-Seconds` headers FR-1 needs, so the Synthesizer serializes a
+  `speak`-owned `SpeechBody` — built by the fluent `SpeechBodyBuilder`, mapping
+  the domain `VoiceMode` Strategy to `instruct`/`voice`/`ref_text` and flattening
+  the gen-params — and posts it over the tuned warm pool, collecting the bytes +
+  timing headers. `--native` routes to the `/tts` body (text/language/speed).)
+- [x] T032 `[adapter:openai]` `VoiceRepository` over `POST/GET/DELETE /voices`
   (multipart).
+  (`src/adapters/openai/voices.rs`: the server's `/voices` surface is not the
+  OpenAI `/audio/voices` endpoint, so the Repository posts multipart
+  `name,audio,ref_text?` to `POST /voices`, parses the `{voices:[{name,
+  has_ref_text}]}` envelope into `domain::voice::Voice`, and `DELETE`s by name —
+  all over the same warm pool.)
 - [x] T033 `[adapter:libav]` custom in-memory AVIO decode -> PCM, libswresample
   resample (48 kHz stereo f32 / 16 kHz mono s16), in-memory WAV mux, RMS gate;
   implements `AudioDecoder` (ADR-0001).

@@ -160,10 +160,33 @@ through a fluent Builder), and the `DomainError` failure vocabulary — and the
 `VoiceRepository`, `RealtimeStream`, `ServerProbe`, and the `RetryPolicy`
 Strategy) now exist and compile clippy-clean, referencing only domain types
 (plus the still-flat resolved `config::Config` POD, which moves inward with the
-config adapter). The `application/` use cases and the `adapters/*` split remain
-the flat top-level modules for now; that move is still tracked in `tasks.md`.
-This ADR section records the lib/bin boundary and the ports + domain landing as
-the first concrete steps toward the full layout.
+config adapter).
+
+The first driven adapter has landed: `src/adapters/openai/` (`OpenAiAdapter`)
+implements the `Synthesizer`, `Transcriber`, `Translator`, and `VoiceRepository`
+ports over the OpenAI-compatible server (T030-T032). It is the only place
+`async-openai`/`reqwest` types appear behind these ports. Two realities forced a
+refinement of ADR-0004's "_byot speech via async-openai" wording: (1)
+`async-openai` 0.41 provides no non-streaming speech "bring-your-own-types"
+method and its `Speech::create` discards the `X-RTF`/`X-Audio-Seconds` response
+headers FR-1 needs, so the Synthesizer keeps the "bring your own types" spirit by
+serializing a `speak`-owned `SpeechBody` (a fluent **Builder** maps the domain
+`VoiceMode` Strategy to the wire fields and flattens the gen-params) and posting
+it over the adapter's tuned warm `reqwest` pool; the typed transcription /
+translation groups (`create_raw`) are used as-is. (2) `async-openai` 0.41 links
+`reqwest` 0.13 while this crate is on 0.12, so one `reqwest::Client` instance
+cannot back both the typed and raw paths — the adapter holds a tuned 0.12 pool
+for the raw calls and lets `async-openai` build its own; unifying them is a
+composition-root concern (T054). Retry is intentionally NOT baked into the
+adapter: the port-preserving decorator (T046) wraps it at the root.
+
+The `application/` use cases and the remaining `adapters/*` (coreaudio, libav,
+config, sse, chatmt, retry) split are still tracked in `tasks.md`; the CLI
+`say`/`transcribe`/`translate`/`voices` paths now drive the `openai` ports
+directly (in-process), with the daemon-forward / Facade unification deferred to
+T045/T053/T054. This ADR section records the lib/bin boundary, the ports +
+domain landing, and the first driven adapter as concrete steps toward the full
+layout.
 
 The Validate phase added a real test suite exercising this core: domain
 value-object units (voice-design tag validation, gen-param keys, retry/backoff
