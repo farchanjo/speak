@@ -88,6 +88,8 @@ pub enum Command {
     Translate(TranslateArgs),
     /// Capture the microphone and translate it live until Ctrl-C.
     Realtime(RealtimeArgs),
+    /// Record the microphone to a WAV/FLAC file.
+    Record(RecordArgs),
     /// Manage saved voices for cloning.
     Voices {
         /// The voices action.
@@ -234,6 +236,50 @@ impl RealtimeArgs {
             RealtimeMode::Echo
         } else {
             RealtimeMode::Translate
+        }
+    }
+}
+
+/// `record` arguments (FR-9).
+#[derive(Args, Debug)]
+pub struct RecordArgs {
+    /// Output file (`.wav`/`.flac`).
+    #[arg(short = 'o', long, value_name = "FILE")]
+    pub output: PathBuf,
+    /// Capture duration in seconds.
+    #[arg(long, value_name = "SECS")]
+    pub duration: f64,
+    /// Capture device `AudioDeviceID` (omit for the system default input).
+    #[arg(long, value_name = "ID")]
+    pub device: Option<u32>,
+    /// Output container.
+    #[arg(long, value_enum, default_value_t = RecordFormatArg::Wav)]
+    pub format: RecordFormatArg,
+    /// Resample to this sample rate (Hz); omit to keep the captured rate.
+    #[arg(long, value_name = "HZ")]
+    pub sample_rate: Option<u32>,
+    /// Resample to this channel count; omit to keep the captured channels.
+    #[arg(long, value_name = "N")]
+    pub channels: Option<u16>,
+}
+
+/// `record` output containers (maps to the codec port's `RecordFormat`).
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum RecordFormatArg {
+    /// RIFF/WAVE PCM.
+    Wav,
+    /// Free Lossless Audio Codec.
+    Flac,
+}
+
+impl RecordFormatArg {
+    /// Project the CLI choice onto the codec port's `RecordFormat`.
+    #[must_use]
+    pub fn to_record_format(self) -> speak::ports::codec::RecordFormat {
+        use speak::ports::codec::RecordFormat;
+        match self {
+            Self::Wav => RecordFormat::Wav,
+            Self::Flac => RecordFormat::Flac,
         }
     }
 }

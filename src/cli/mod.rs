@@ -25,6 +25,7 @@ pub mod completions;
 pub mod config;
 pub mod devices;
 pub mod realtime;
+pub mod record;
 pub mod say;
 pub mod transcribe;
 pub mod translate;

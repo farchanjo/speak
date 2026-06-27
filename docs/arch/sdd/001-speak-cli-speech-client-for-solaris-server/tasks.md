@@ -366,9 +366,17 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   every network adapter with its port-preserving retry decorator (T046), wire
   the `check`/`health` use case to the `ServerProbe` adapter, wire all adapters
   into use cases, select CLI vs daemon.
-- [ ] T055 `[cli]` wire `speak record` (`--output`, `--device`, `--format
+- [x] T055 `[cli]` wire `speak record` (`--output`, `--device`, `--format
   wav|flac`, `--duration`, `--sample-rate`, `--channels`) to the `record` use
   case (FR-9).
+  (`src/cli/record.rs`: the `Record` subcommand maps its flags to the
+  `RecordOptions` value object (required `-o/--output` + `--duration`, optional
+  `--device`/`--sample-rate`/`--channels`, `--format wav|flac` via the
+  `RecordFormatArg` `ValueEnum` -> the codec port's `RecordFormat`), runs the
+  application record use case through the Facade, writes the muxed bytes to
+  `--output` (the only driving-adapter I/O), and reports file/format/frames/
+  seconds/bytes through the Presenter. A CLI test covers the ValueEnum rejection
+  and the required-arg parse failures.)
 - [x] T056 `[cli]` wire `speak devices [--json]` to the device-enumeration
   adapter (T035) and print input/output devices + `AudioDeviceID`s (FR-10).
   (`src/main.rs`: the `Devices` subcommand is a thin CLI adapter (per T047) that

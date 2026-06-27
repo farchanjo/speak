@@ -99,6 +99,7 @@ async fn dispatch(cli: Cli, cfg: &Config) -> Result<()> {
         Command::Realtime(args) => {
             cli::realtime::run(&factory.facade(false)?, cfg, &globals, args, out).await
         }
+        Command::Record(args) => cli::record::run(&factory.facade(false)?, cfg, args, out).await,
         Command::Voices { action } => cli::voices::run(&factory.facade(false)?, action, out).await,
         Command::Daemon(args) => daemon::run(cfg, args).await,
         Command::Completions { .. } => Ok(()),

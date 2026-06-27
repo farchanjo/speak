@@ -121,6 +121,30 @@ fn invalid_text_format_is_rejected() {
 }
 
 #[test]
+fn record_rejects_unknown_format_and_requires_output() {
+    // The record container ValueEnum rejects unknown formats (exit 2)...
+    let bad = run(&[
+        "record",
+        "-o",
+        "x.wav",
+        "--duration",
+        "1",
+        "--format",
+        "ogg",
+    ]);
+    assert!(!bad.status.success());
+    assert!(stderr(&bad).contains("invalid value"), "{}", stderr(&bad));
+    // ...and --output / --duration are required, so a bare `record` fails parse.
+    let missing = run(&["record"]);
+    assert!(!missing.status.success());
+    assert!(
+        stderr(&missing).contains("required") || stderr(&missing).contains("Usage"),
+        "{}",
+        stderr(&missing)
+    );
+}
+
+#[test]
 fn list_designs_prints_canonical_tags_offline() {
     // `say --list-designs` short-circuits before any transport/network work.
     let out = run(&["say", "--list-designs"]);
