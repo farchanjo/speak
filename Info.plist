@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>ltd.eonf.speak</string>
+  <key>CFBundleName</key>
+  <string>speak</string>
+  <key>CFBundleExecutable</key>
+  <string>speak</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.1.0</string>
+  <key>CFBundleVersion</key>
+  <string>0.1.0</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>14.4</string>
+  <key>LSUIElement</key>
+  <true/>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>speak captures the microphone for live transcription, recording, and realtime translation.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>speak captures the system / sound-card output for transcription and recording when you choose --source output.</string>
+</dict>
+</plist>
