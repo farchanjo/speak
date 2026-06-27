@@ -11,9 +11,9 @@
 
 use anyhow::Result;
 
+use speak::adapters::config::Config;
 use speak::adapters::sse::{RealtimeRequest, SseRealtimeClient};
 use speak::application::{RealtimeEvent, RealtimeOptions, RealtimeStep};
-use speak::config::Config;
 use speak::domain::audio_format::AudioFormat;
 use speak::domain::language::Language;
 use speak::domain::realtime::RealtimeMode;

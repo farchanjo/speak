@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
 
-use speak::config::GlobalFlags;
+use speak::adapters::config::GlobalFlags;
 use speak::daemon;
 
 /// Top-level CLI parser.

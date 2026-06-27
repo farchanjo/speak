@@ -4,9 +4,9 @@
 //! modules implement them and the composition root injects the concrete
 //! implementations (wrapped in their retry decorators). Dependencies point
 //! inward: ports reference only the pure [`crate::domain`] value objects (plus
-//! the still-flat resolved [`crate::config::Config`] POD, which moves inward
-//! with the config adapter in a later stage). No `reqwest`/`ffmpeg`/`objc2`/
-//! `async-openai` type appears in any port signature.
+//! the resolved [`crate::adapters::config::Config`] POD the `ConfigProvider`
+//! port returns — plain data with no framework types). No `reqwest`/`ffmpeg`/
+//! `objc2`/`async-openai` type appears in any port signature.
 
 pub mod audio;
 pub mod codec;

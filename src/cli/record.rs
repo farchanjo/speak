@@ -7,8 +7,8 @@
 
 use anyhow::{Context, Result};
 
+use speak::adapters::config::Config;
 use speak::application::RecordOptions;
-use speak::config::Config;
 use speak::ports::audio::AudioDeviceId;
 use speak::ports::presenter::{Presenter, Report};
 

@@ -209,9 +209,9 @@ fn voice_design_say_is_accepted() {
 async fn realtime_sse_streams_transcript_and_audio() {
     use std::time::Duration;
 
+    use speak::adapters::config::{Config, GlobalFlags};
     use speak::adapters::openai::OpenAiAdapter;
     use speak::adapters::sse::{RealtimeRequest, SseRealtimeClient};
-    use speak::config::{Config, GlobalFlags};
     use speak::domain::audio_format::AudioFormat;
     use speak::domain::language::Language;
     use speak::domain::speech_spec::SpeechSpec;

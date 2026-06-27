@@ -6,7 +6,7 @@ use async_openai::Client;
 use async_openai::config::OpenAIConfig;
 use reqwest::RequestBuilder;
 
-use crate::config::Config;
+use crate::adapters::config::Config;
 
 /// The `openai` driven adapter: a warm transport implementing the
 /// `Synthesizer`, `Transcriber`, `Translator`, and `VoiceRepository` ports.

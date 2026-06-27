@@ -25,8 +25,8 @@ use futures_util::StreamExt;
 use futures_util::stream::Stream;
 use reqwest::multipart::{Form, Part};
 
+use crate::adapters::config::Config;
 use crate::adapters::retry::{HttpStatusError, ReconnectingStream, StreamFactory};
-use crate::config::Config;
 use crate::domain::retry::RetryPolicy;
 use crate::ports::realtime::{RealtimeFrame, RealtimeStream};
 

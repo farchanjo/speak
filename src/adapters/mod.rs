@@ -7,6 +7,7 @@
 //! point inward only: adapters depend on ports + domain, never the reverse.
 
 pub mod chatmt;
+pub mod config;
 pub mod coreaudio;
 pub mod headless;
 pub mod http;

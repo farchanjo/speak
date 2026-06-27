@@ -5,7 +5,7 @@
 
 use anyhow::{Context, Result};
 
-use speak::config::Config;
+use speak::adapters::config::Config;
 use speak::domain::language::Language;
 use speak::ports::presenter::Presenter;
 use speak::ports::transcriber::TranscribeRequest;

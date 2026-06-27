@@ -18,7 +18,7 @@ use reqwest::Client;
 /// pool (ADR-0004): the `openai` adapter passes a clone to `async-openai` *and*
 /// keeps one for the extended speech / `/tts` / voice-CRUD requests the typed API
 /// cannot express, so a single warm connection pool backs every call it makes.
-pub fn build_http_client(s: &crate::config::Server) -> Result<Client> {
+pub fn build_http_client(s: &crate::adapters::config::Server) -> Result<Client> {
     let mut builder = Client::builder()
         .user_agent(s.user_agent.clone())
         .pool_max_idle_per_host(s.pool_max_idle)
@@ -36,7 +36,7 @@ pub fn build_http_client(s: &crate::config::Server) -> Result<Client> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Server;
+    use crate::adapters::config::Server;
 
     fn server() -> Server {
         Server {

@@ -8,8 +8,8 @@
 
 use anyhow::Result;
 
+use speak::adapters::config::Config;
 use speak::adapters::libav::accel;
-use speak::config::Config;
 use speak::ports::presenter::{Presenter, Report};
 use speak::{logging, paths};
 

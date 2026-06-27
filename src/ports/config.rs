@@ -6,14 +6,13 @@
 //! concrete resolver.
 //!
 //! NOTE: the resolved [`Config`] is plain data (no `reqwest`/`ffmpeg`/`objc2`
-//! types). It still lives in the flat `crate::config` module today; when that
-//! module moves under `adapters/config` in a later rebuild stage, this port and
-//! the resolved POD move with it. The port is introduced now so the
-//! application layer can target the abstraction immediately.
+//! types). The serde/toml resolver lives in the [`crate::adapters::config`]
+//! driven adapter, so this port names only the POD it returns. The port lets the
+//! application layer target the abstraction rather than the concrete resolver.
 
 use anyhow::Result;
 
-use crate::config::Config;
+use crate::adapters::config::Config;
 
 /// Driven port: load the fully-resolved configuration catalog.
 pub trait ConfigProvider {

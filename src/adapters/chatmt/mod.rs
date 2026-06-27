@@ -15,8 +15,8 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::adapters::config::Config;
 use crate::adapters::retry::HttpStatusError;
-use crate::config::Config;
 use crate::domain::language::Language;
 use crate::ports::transcriber::{TranscribeRequest, Transcriber};
 use crate::ports::translator::Translator;

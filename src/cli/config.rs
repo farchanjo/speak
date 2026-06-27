@@ -6,7 +6,7 @@
 
 use anyhow::{Context, Result};
 
-use speak::config::{self, Config};
+use speak::adapters::config::{self, Config};
 use speak::paths;
 use speak::ports::presenter::{Presenter, Table};
 

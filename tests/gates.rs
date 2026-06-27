@@ -88,7 +88,8 @@ fn every_config_knob_resolves_through_a_speak_env_override() {
     /// Lines to scan past a knob call site for its `SPEAK_*` env literal.
     const WINDOW: usize = 8;
 
-    let config = std::fs::read_to_string(src_dir().join("config.rs")).expect("read config.rs");
+    let config =
+        std::fs::read_to_string(src_dir().join("adapters/config.rs")).expect("read config.rs");
     // Restrict to the resolver section: knob calls live only on `self`, never in
     // the `#[cfg(test)]` module (tests call the free `pick_*` helpers directly).
     let lines: Vec<&str> = config.lines().collect();
@@ -122,7 +123,8 @@ fn every_config_knob_resolves_through_a_speak_env_override() {
 /// precedence engine still routes the whole knob surface through the env layer.
 #[test]
 fn config_exposes_a_broad_speak_env_catalog() {
-    let config = std::fs::read_to_string(src_dir().join("config.rs")).expect("read config.rs");
+    let config =
+        std::fs::read_to_string(src_dir().join("adapters/config.rs")).expect("read config.rs");
     let mut envs: Vec<&str> = config
         .match_indices("SPEAK_")
         .map(|(i, _)| {

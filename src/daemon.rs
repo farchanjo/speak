@@ -29,12 +29,12 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Notify;
 
+use crate::adapters::config::Config;
 use crate::adapters::headless::HeadlessAudio;
 use crate::adapters::libav::{DecodeOptions, LibavCodec};
 use crate::adapters::openai::OpenAiAdapter;
 use crate::adapters::retry::{Retry, jitter_entropy};
 use crate::application::{SayOptions, SpeakFacade};
-use crate::config::Config;
 use crate::domain::audio_format::AudioFormat;
 use crate::domain::language::Language;
 use crate::domain::retry::{ErrorKind, RetryPolicy};

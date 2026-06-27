@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value};
 
+use speak::adapters::config::{self, Config};
 use speak::application::SayOptions;
-use speak::config::{self, Config};
 use speak::domain::audio_format::AudioFormat;
 use speak::domain::language::Language;
 use speak::domain::{gen_params, speech_spec::SpeechSpec, voice_design};
