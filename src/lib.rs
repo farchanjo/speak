@@ -7,10 +7,12 @@
 //! libav codec layer, and the domain value objects directly reachable from the
 //! integration test suite under `tests/`.
 //!
-//! Media path: server audio is decoded and resampled with linked `libav*`
-//! (ffmpeg-the-third) and played through the native macOS CoreAudio mixer
-//! (AVAudioEngine); the microphone is captured natively too. Nothing is shelled
-//! out.
+//! Media path: server audio is decoded and resampled with linked `libav*` in the
+//! `libav` adapter and played through the native macOS CoreAudio mixer in the
+//! `coreaudio` adapter; the microphone is captured natively too. Nothing is
+//! shelled out. Framework crates live only under `src/adapters` (and clap under
+//! `src/cli`); the flat-root modules are this index, the composition root
+//! (`main.rs`), and the `logging`/`paths` cross-cutting helpers.
 
 pub mod adapters;
 pub mod application;
