@@ -12,11 +12,15 @@ use std::path::Path;
 
 use anyhow::Result;
 
+use speak::adapters::config::Config;
 use speak::adapters::coreaudio::CoreAudio;
 use speak::adapters::libav::LibavCodec;
 use speak::application::SpeakFacade;
+use speak::domain::capture_source::{CaptureDirection, CaptureSource};
 use speak::domain::voice::{StandardVoice, VoiceClone, VoiceMode};
 use speak::domain::voice_design::VoiceDesign;
+
+use args::CaptureSourceArg;
 
 pub(crate) mod args;
 pub(crate) mod check;
@@ -45,6 +49,38 @@ pub(crate) fn file_name(path: &Path) -> String {
         .and_then(|s| s.to_str())
         .unwrap_or("audio")
         .to_owned()
+}
+
+/// Assemble a [`CaptureSource`] from the shared `--source`/`-d`/`-I` flags with
+/// the config catalog (ADR-0015), honoring `flag > toml > default`:
+///
+/// - direction: the `--source` flag, else `[audio.capture].source` (default
+///   `input`);
+/// - device (`0` = unset on the flag): the flag, else — for the output source —
+///   `[audio.capture].device`;
+/// - channel: the `-I` flag, else `[audio.capture].channel` (output) or
+///   `[audio.input].channel` (input).
+#[must_use]
+pub(crate) fn capture_source(
+    flag_source: Option<CaptureSourceArg>,
+    device: u32,
+    flag_channel: Option<u16>,
+    cfg: &Config,
+) -> CaptureSource {
+    let direction = flag_source.map_or_else(
+        || cfg.audio.capture.direction(),
+        CaptureSourceArg::direction,
+    );
+    let device = (device != 0).then_some(device).or_else(|| {
+        matches!(direction, CaptureDirection::Output)
+            .then_some(cfg.audio.capture.device)
+            .flatten()
+    });
+    let channel = flag_channel.or(match direction {
+        CaptureDirection::Output => cfg.audio.capture.channel,
+        CaptureDirection::Input => cfg.audio.input.channel,
+    });
+    CaptureSource::new(direction, device, channel)
 }
 
 /// Resolve the voice **Strategy** (FR-2) shared by `say` and `realtime`:

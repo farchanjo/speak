@@ -20,9 +20,33 @@ pub(crate) const ASR_CHANNELS: u16 = 1;
 /// Capture one chunk from `source`, gate silence, and encode it to WAV.
 ///
 /// Returns `Ok(None)` when the VAD gate (`vad` + `silence_floor`) treats the
-/// chunk as silence; otherwise the WAV bytes ready to POST. The captured buffer
-/// is reduced to one channel before the mono downmix when `source.channel()` is
+/// chunk as silence; otherwise the channel-picked raw capture (for echo
+/// playback) alongside the WAV bytes ready to POST. The captured buffer is
+/// reduced to one channel before the mono downmix when `source.channel()` is
 /// set (ADR-0013).
+pub(crate) async fn capture_gated<A, C>(
+    audio: &A,
+    codec: &C,
+    source: &CaptureSource,
+    chunk_secs: f64,
+    vad: bool,
+    silence_floor: f64,
+) -> Result<Option<(PcmBuffer, Vec<u8>)>>
+where
+    A: AudioSource,
+    C: AudioDecoder + AudioEncoder,
+{
+    let captured = audio.capture_for(source, chunk_secs).await?;
+    let captured = super::pick_input_channel(captured, source.channel())?;
+    let mono = codec.resample(&captured, ASR_RATE, ASR_CHANNELS)?;
+    if vad && rms(&mono) < silence_floor {
+        return Ok(None);
+    }
+    let wav = codec.encode(&mono, RecordFormat::Wav)?;
+    Ok(Some((captured, wav)))
+}
+
+/// Like [`capture_gated`] but yielding only the WAV bytes (no raw capture).
 pub(crate) async fn capture_gated_wav<A, C>(
     audio: &A,
     codec: &C,
@@ -35,13 +59,11 @@ where
     A: AudioSource,
     C: AudioDecoder + AudioEncoder,
 {
-    let captured = audio.capture_for(source, chunk_secs).await?;
-    let captured = super::pick_input_channel(captured, source.channel())?;
-    let mono = codec.resample(&captured, ASR_RATE, ASR_CHANNELS)?;
-    if vad && rms(&mono) < silence_floor {
-        return Ok(None);
-    }
-    Ok(Some(codec.encode(&mono, RecordFormat::Wav)?))
+    Ok(
+        capture_gated(audio, codec, source, chunk_secs, vad, silence_floor)
+            .await?
+            .map(|(_, wav)| wav),
+    )
 }
 
 /// Linear RMS amplitude of an interleaved float buffer (silence-gate input).

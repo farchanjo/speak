@@ -22,6 +22,7 @@ use anyhow::Result;
 
 use crate::application::playback;
 use crate::domain::audio_format::AudioFormat;
+use crate::domain::capture_source::CaptureSource;
 use crate::domain::gen_params::GenParams;
 use crate::domain::language::Language;
 use crate::domain::pcm::PcmBuffer;
@@ -29,16 +30,12 @@ use crate::domain::realtime::RealtimeMode;
 use crate::domain::speech_spec::SpeechSpec;
 use crate::domain::voice::VoiceMode;
 use crate::ports::audio::{AudioDeviceId, AudioSink, AudioSource};
-use crate::ports::codec::{AudioDecoder, AudioEncoder, RecordFormat};
+use crate::ports::codec::{AudioDecoder, AudioEncoder};
 use crate::ports::realtime::{RealtimeFrame, RealtimeStream};
 use crate::ports::synthesizer::Synthesizer;
 use crate::ports::transcriber::{TranscribeRequest, Transcriber};
 use crate::ports::translator::Translator;
 
-/// Whisper's required ASR sample rate (Hz) — a fixed protocol constant.
-const ASR_RATE: u32 = 16_000;
-/// Whisper expects mono audio.
-const ASR_CHANNELS: u16 = 1;
 /// Upload file name advertised to the ASR/translate endpoints.
 const CHUNK_NAME: &str = "chunk.wav";
 
@@ -63,12 +60,9 @@ pub struct RealtimeOptions {
     pub gen_params: GenParams,
     /// Capture chunk length in seconds.
     pub chunk_secs: f64,
-    /// Capture device (`None` = system default input).
-    pub device: Option<AudioDeviceId>,
-    /// Select one 0-based input channel before the mono downmix (`None` keeps the
-    /// downmix of all channels, ADR-0013) — for a mic on one input of a
-    /// multi-channel interface.
-    pub input_channel: Option<u16>,
+    /// Where the live audio comes from: an input device or the host output
+    /// (ADR-0015); carries the device and the single capture channel (ADR-0013).
+    pub source: CaptureSource,
     /// Playback output devices; empty = default (fan-out when > 1, FR-11).
     pub outputs: Vec<AudioDeviceId>,
     /// Mixer volume.
@@ -164,19 +158,20 @@ where
         Ok(self.capture_gated(opts).await?.map(|(_, wav)| wav))
     }
 
-    /// Capture one chunk, resample to the ASR rate, gate silence, and mux WAV.
+    /// Capture one chunk via the shared capture-and-gate step (ADR-0015).
     ///
     /// Returns the raw capture (for echo playback) alongside the encoded WAV, or
     /// `Ok(None)` when the VAD gate treats the chunk as silence.
     async fn capture_gated(&self, opts: &RealtimeOptions) -> Result<Option<(PcmBuffer, Vec<u8>)>> {
-        let captured = self.audio.capture(opts.device, opts.chunk_secs).await?;
-        let captured = super::pick_input_channel(captured, opts.input_channel)?;
-        let mono = self.codec.resample(&captured, ASR_RATE, ASR_CHANNELS)?;
-        if opts.vad && rms(&mono) < opts.silence_floor {
-            return Ok(None);
-        }
-        let wav = self.codec.encode(&mono, RecordFormat::Wav)?;
-        Ok(Some((captured, wav)))
+        super::capture::capture_gated(
+            self.audio,
+            self.codec,
+            &opts.source,
+            opts.chunk_secs,
+            opts.vad,
+            opts.silence_floor,
+        )
+        .await
     }
 
     /// Decode and play one SSE realtime frame, or surface its text/terminal state.
@@ -306,16 +301,6 @@ fn text_event(kind: FrameKind, text: String) -> RealtimeEvent {
     RealtimeEvent::Text { kind, text }
 }
 
-/// Linear RMS amplitude of an interleaved float buffer (silence gate input).
-fn rms(pcm: &PcmBuffer) -> f64 {
-    let samples = pcm.samples();
-    if samples.is_empty() {
-        return 0.0;
-    }
-    let sum: f64 = samples.iter().map(|&v| f64::from(v) * f64::from(v)).sum();
-    (sum / samples.len() as f64).sqrt()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,8 +318,7 @@ mod tests {
             speed: 1.0,
             gen_params: GenParams::new(),
             chunk_secs: 5.0,
-            device: None,
-            input_channel: None,
+            source: CaptureSource::input(None, None),
             outputs: Vec::new(),
             volume: 1.0,
             vad: false,

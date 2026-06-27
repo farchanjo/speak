@@ -9,7 +9,6 @@ use anyhow::{Context, Result};
 
 use speak::adapters::config::Config;
 use speak::application::RecordOptions;
-use speak::ports::audio::AudioDeviceId;
 use speak::ports::presenter::{Presenter, Report};
 
 use super::AppFacade;
@@ -24,12 +23,16 @@ pub(crate) async fn run(
 ) -> Result<()> {
     let format = args.format.to_record_format();
     let opts = RecordOptions {
-        device: args.device.map(AudioDeviceId),
+        source: super::capture_source(
+            args.source,
+            args.device.unwrap_or(0),
+            args.input_channel,
+            cfg,
+        ),
         secs: args.duration,
         format,
         sample_rate: args.sample_rate,
         channels: args.channels,
-        input_channel: args.input_channel.or(cfg.audio.input.channel),
     };
     let outcome = facade.record(&opts).await?;
     tokio::fs::write(&args.output, &outcome.bytes)

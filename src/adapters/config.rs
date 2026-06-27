@@ -182,6 +182,29 @@ pub struct Input {
     pub vad: bool,
 }
 
+/// `[audio.capture]` capture-source settings (ADR-0015).
+#[derive(Debug, Clone)]
+pub struct Capture {
+    /// Capture source: `input` (mic/line-in) or `output` (host/sound-card
+    /// playback via the native tap). The `--source` flag overrides this.
+    pub source: String,
+    /// Output `AudioDeviceID` to tap when `source = output` (`None` = system
+    /// output mix). Consulted only when the `-d` flag is unset.
+    pub device: Option<u32>,
+    /// Single 0-based capture channel for the output source (`None` = downmix).
+    pub channel: Option<u16>,
+}
+
+impl Capture {
+    /// The configured capture direction; an unrecognised token degrades to
+    /// `input` (the value is still reported verbatim by `config show`).
+    #[must_use]
+    pub fn direction(&self) -> crate::domain::capture_source::CaptureDirection {
+        crate::domain::capture_source::CaptureDirection::parse(&self.source)
+            .unwrap_or(crate::domain::capture_source::CaptureDirection::Input)
+    }
+}
+
 /// `[audio]` container.
 #[derive(Debug, Clone)]
 pub struct Audio {
@@ -189,6 +212,8 @@ pub struct Audio {
     pub output: Output,
     /// Input settings.
     pub input: Input,
+    /// Capture-source settings (ADR-0015).
+    pub capture: Capture,
 }
 
 /// `[ffmpeg]` codec/resampler settings.
@@ -427,11 +452,20 @@ struct FileInput {
 }
 
 #[derive(Debug, Default, Deserialize)]
+struct FileCapture {
+    source: Option<String>,
+    device: Option<u32>,
+    channel: Option<u16>,
+}
+
+#[derive(Debug, Default, Deserialize)]
 struct FileAudio {
     #[serde(default)]
     output: FileOutput,
     #[serde(default)]
     input: FileInput,
+    #[serde(default)]
+    capture: FileCapture,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -876,6 +910,31 @@ impl Resolver {
         Audio {
             output: self.output(),
             input: self.input(),
+            capture: self.capture(),
+        }
+    }
+
+    fn capture(&mut self) -> Capture {
+        Capture {
+            source: self.val(
+                "audio.capture.source",
+                None,
+                "SPEAK_AUDIO_CAPTURE_SOURCE",
+                self.file.audio.capture.source.clone(),
+                "input".to_owned(),
+            ),
+            device: self.opt(
+                "audio.capture.device",
+                None,
+                "SPEAK_AUDIO_CAPTURE_DEVICE",
+                self.file.audio.capture.device,
+            ),
+            channel: self.opt(
+                "audio.capture.channel",
+                None,
+                "SPEAK_AUDIO_CAPTURE_CHANNEL",
+                self.file.audio.capture.channel,
+            ),
         }
     }
 
@@ -1479,6 +1538,29 @@ mod tests {
     }
 
     #[test]
+    fn resolver_records_toml_origin_for_capture_source() {
+        without_env("SPEAK_AUDIO_CAPTURE_SOURCE", || {
+            let file = FileConfig {
+                audio: FileAudio {
+                    capture: FileCapture {
+                        source: Some("output".into()),
+                        ..FileCapture::default()
+                    },
+                    ..FileAudio::default()
+                },
+                ..FileConfig::default()
+            };
+            let cfg = Resolver::new(GlobalFlags::default(), file)
+                .finish()
+                .unwrap();
+            let (_, value, origin) = entry(&cfg, "audio.capture.source");
+            assert_eq!(value, "output");
+            assert_eq!(*origin, Origin::Toml);
+            assert_eq!(cfg.audio.capture.direction().as_str(), "output");
+        });
+    }
+
+    #[test]
     fn resolver_flag_overrides_toml_for_host() {
         without_env("SPEAK_HOST", || {
             let file = FileConfig {
@@ -1676,6 +1758,8 @@ mod tests {
             "audio.input.sample_rate",
             "audio.input.chunk_secs",
             "audio.input.silence_threshold_db",
+            // capture source (ADR-0015)
+            "audio.capture.source",
             // realtime + ffmpeg + daemon knobs
             "realtime.chunk_secs",
             "ffmpeg.threads",

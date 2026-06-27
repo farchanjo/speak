@@ -48,6 +48,7 @@ pub(crate) async fn run(
         mode = opts.mode.as_str(),
         chunk = opts.chunk_secs,
         device = args.device,
+        source = opts.source.direction().as_str(),
         from = opts.from.as_ref().map_or("auto", Language::as_str),
         to = opts.to.as_str(),
         path = if realtime { "sse" } else { "chunked" },
@@ -199,8 +200,7 @@ fn build_options(
         speed: cfg.tts.speed,
         gen_params: gen_to_params(&cfg.tts.gen_params),
         chunk_secs: chunk_secs(cfg, args),
-        device: (args.device != 0).then_some(AudioDeviceId(args.device)),
-        input_channel: args.input_channel.or(cfg.audio.input.channel),
+        source: super::capture_source(args.source, args.device, args.input_channel, cfg),
         outputs: args
             .output_device
             .iter()

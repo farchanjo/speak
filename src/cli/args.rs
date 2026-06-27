@@ -224,9 +224,10 @@ pub(crate) struct TranscribeArgs {
     /// Stream a live transcript from the capture source until Ctrl-C (FR-1).
     #[arg(short = 'S', long)]
     pub stream: bool,
-    /// Capture source for `--stream`: input device or host output (FR-3).
-    #[arg(short = 's', long, value_enum, default_value_t = CaptureSourceArg::Input)]
-    pub source: CaptureSourceArg,
+    /// Capture source for `--stream` (overrides `[audio.capture].source`):
+    /// input device or host output (FR-3).
+    #[arg(short = 's', long, value_enum)]
+    pub source: Option<CaptureSourceArg>,
     /// Capture device `AudioDeviceID` (0 = default for the source direction).
     #[arg(short = 'd', long, default_value_t = 0, value_name = "ID")]
     pub device: u32,
@@ -322,6 +323,10 @@ pub(crate) struct RealtimeArgs {
     /// mic on one input of a multi-channel interface (e.g. SSL 12 input 1 = 0).
     #[arg(short = 'I', long = "input-channel", value_name = "N")]
     pub input_channel: Option<u16>,
+    /// Capture source, overriding `[audio.capture].source`: input device or
+    /// host output (FR-3, ADR-0015).
+    #[arg(short = 's', long, value_enum)]
+    pub source: Option<CaptureSourceArg>,
 }
 
 impl RealtimeArgs {
@@ -364,6 +369,10 @@ pub(crate) struct RecordArgs {
     /// one input of a multi-channel interface (e.g. SSL 12 input 1 = 0).
     #[arg(short = 'I', long = "input-channel", value_name = "N")]
     pub input_channel: Option<u16>,
+    /// Capture source, overriding `[audio.capture].source`: input device or
+    /// host output (FR-3 / FR-8, ADR-0015).
+    #[arg(short = 's', long, value_enum)]
+    pub source: Option<CaptureSourceArg>,
 }
 
 /// `record` output containers (maps to the codec port's `RecordFormat`).
@@ -558,6 +567,7 @@ mod tests {
             no_vad: false,
             vad_floor: None,
             input_channel: None,
+            source: None,
         };
         assert_eq!(make(false, false, false).mode(), RealtimeMode::Translate);
         assert_eq!(make(true, false, false).mode(), RealtimeMode::Translate);
@@ -574,7 +584,7 @@ mod tests {
             Command::Transcribe(a) => {
                 assert_eq!(a.file.as_deref(), Some(std::path::Path::new("clip.mp3")));
                 assert!(!a.stream);
-                assert_eq!(a.source, CaptureSourceArg::Input);
+                assert!(a.source.is_none(), "no flag => fall back to config");
             }
             other => panic!("expected transcribe, got {other:?}"),
         }
@@ -589,7 +599,7 @@ mod tests {
             Command::Transcribe(a) => {
                 assert!(a.stream);
                 assert!(a.file.is_none());
-                assert_eq!(a.source, CaptureSourceArg::Input);
+                assert!(a.source.is_none());
             }
             other => panic!("expected transcribe, got {other:?}"),
         }
@@ -615,8 +625,8 @@ mod tests {
         match cli.command {
             Command::Transcribe(a) => {
                 assert!(a.stream);
-                assert_eq!(a.source, CaptureSourceArg::Output);
-                assert_eq!(a.source.direction(), CaptureDirection::Output);
+                assert_eq!(a.source, Some(CaptureSourceArg::Output));
+                assert_eq!(a.source.unwrap().direction(), CaptureDirection::Output);
                 assert_eq!(a.device, 42);
                 assert_eq!(a.input_channel, Some(1));
                 assert_eq!(a.vad_floor, Some(-50.0));

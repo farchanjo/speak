@@ -7,15 +7,17 @@
 
 use anyhow::Result;
 
+use crate::domain::capture_source::CaptureSource;
 use crate::domain::pcm::PcmBuffer;
-use crate::ports::audio::{AudioDeviceId, AudioSource};
+use crate::ports::audio::AudioSource;
 use crate::ports::codec::{AudioDecoder, AudioEncoder, RecordFormat};
 
 /// Options for a `record` invocation.
 #[derive(Debug, Clone)]
 pub struct RecordOptions {
-    /// Capture device (`None` = system default input).
-    pub device: Option<AudioDeviceId>,
+    /// Where the audio comes from: an input device or the host output
+    /// (ADR-0015); carries the device and the single capture channel (ADR-0013).
+    pub source: CaptureSource,
     /// Capture duration in seconds.
     pub secs: f64,
     /// Output container.
@@ -24,9 +26,6 @@ pub struct RecordOptions {
     pub sample_rate: Option<u32>,
     /// Target channel count (`None` keeps the captured channels).
     pub channels: Option<u16>,
-    /// Select one 0-based input channel before conforming (`None` keeps all,
-    /// ADR-0013) — picks a mic on one input of a multi-channel interface.
-    pub input_channel: Option<u16>,
 }
 
 /// The result of a `record` invocation.
@@ -67,8 +66,8 @@ where
 
     /// Capture, conform, and encode according to `opts`.
     pub async fn execute(&self, opts: &RecordOptions) -> Result<RecordOutcome> {
-        let captured = self.source.capture(opts.device, opts.secs).await?;
-        let captured = super::pick_input_channel(captured, opts.input_channel)?;
+        let captured = self.source.capture_for(&opts.source, opts.secs).await?;
+        let captured = super::pick_input_channel(captured, opts.source.channel())?;
         let pcm = self.conform(captured, opts)?;
         let bytes = self.encoder.encode(&pcm, opts.format)?;
         Ok(RecordOutcome {
@@ -97,12 +96,11 @@ mod tests {
 
     fn opts(format: RecordFormat) -> RecordOptions {
         RecordOptions {
-            device: None,
+            source: CaptureSource::input(None, None),
             secs: 1.0,
             format,
             sample_rate: None,
             channels: None,
-            input_channel: None,
         }
     }
 
@@ -128,7 +126,7 @@ mod tests {
         let audio = FakeAudio::default();
         let codec = FakeCodec;
         let req = RecordOptions {
-            input_channel: Some(0),
+            source: CaptureSource::input(None, Some(0)),
             ..opts(RecordFormat::Wav)
         };
         let outcome = RecordUseCase::new(&audio, &codec, &codec)
@@ -144,7 +142,7 @@ mod tests {
         let audio = FakeAudio::default();
         let codec = FakeCodec;
         let req = RecordOptions {
-            input_channel: Some(9),
+            source: CaptureSource::input(None, Some(9)),
             ..opts(RecordFormat::Wav)
         };
         let err = RecordUseCase::new(&audio, &codec, &codec)

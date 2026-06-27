@@ -11,7 +11,6 @@ use anyhow::{Context, Result, bail};
 use speak::adapters::config::Config;
 use speak::adapters::sse::{RealtimeRequest, SseRealtimeClient};
 use speak::application::{StreamTranscribeOptions, TranscribeStreamEnd};
-use speak::domain::capture_source::CaptureSource;
 use speak::domain::language::Language;
 use speak::ports::presenter::Presenter;
 use speak::ports::transcriber::TranscribeRequest;
@@ -134,9 +133,7 @@ fn stream_request(wav: Vec<u8>, cfg: &Config, args: &TranscribeArgs) -> Realtime
 
 /// Assemble the streaming options from the flags + `[audio.input]` defaults.
 fn build_options(cfg: &Config, args: &TranscribeArgs) -> StreamTranscribeOptions {
-    let device = (args.device != 0).then_some(args.device);
-    let channel = args.input_channel.or(cfg.audio.input.channel);
-    let source = CaptureSource::new(args.source.direction(), device, channel);
+    let source = super::capture_source(args.source, args.device, args.input_channel, cfg);
     let chunk_secs = if args.chunk == 5 {
         cfg.audio.input.chunk_secs
     } else {

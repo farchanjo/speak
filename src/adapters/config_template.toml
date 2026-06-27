@@ -64,6 +64,15 @@ chunk_secs = 5.0              # realtime capture chunk length
 silence_threshold_db = -38.0  # silence gate threshold (dBFS)
 vad = true                    # enable the silence/VAD gate
 
+[audio.capture]               # capture source for transcribe --stream / realtime / record (ADR-0015)
+source = "input"              # "input" (mic/line-in) or "output" (host/sound-card playback)
+                              # `output` uses the native macOS Core Audio tap (macOS 14.4+);
+                              # without it, route the output to a virtual-loopback device
+                              # (BlackHole) and capture it as `--source input -d <id>`.
+                              # The --source flag overrides this.
+# device = 0                  # output AudioDeviceID to tap when source = "output" (default = system mix)
+# channel = 0                 # pick ONE 0-based channel of the tapped output
+
 [ffmpeg]
 threads = 0                   # decoder threads (0 = all local cores)
 resampler = "swr"             # swr | soxr
