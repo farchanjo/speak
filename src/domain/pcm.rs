@@ -3,9 +3,10 @@
 //! Pure, IO-free PCM representation. [`PcmBuffer`] holds interleaved 32-bit
 //! float samples (the canonical in-memory playback representation) tagged with
 //! their sample rate and channel count; [`SampleFormat`] names the on-the-wire
-//! integer or float encoding the codec adapters convert to/from. No `ffmpeg`
-//! types appear here — the libav adapter (ADR-0001) owns the real conversion;
-//! this layer only models the data and derives frame/duration arithmetic.
+//! integer or float encoding the codec adapters convert to/from. No codec /
+//! audio-framework types appear here — the libav adapter (ADR-0001) owns the
+//! real conversion; this layer only models the data and derives frame/duration
+//! arithmetic.
 
 /// On-the-wire PCM sample encoding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

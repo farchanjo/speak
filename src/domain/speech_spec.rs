@@ -4,15 +4,14 @@
 //!
 //! Pure: assembled through a fluent **Builder** (GoF Builder, ADR-0003) that
 //! enforces the invariants (non-empty input; positive, finite speed; a chosen
-//! voice mode and language) and yields an immutable aggregate. No wire/serde
-//! request shape lives here — the openai adapter translates it (ADR-0004). The
-//! `gen_params` map is the already-validated output of
+//! voice mode and language) and yields an immutable aggregate. No wire request
+//! shape lives here — the openai adapter translates it to JSON (ADR-0004). The
+//! [`GenParams`] value object is the already-validated output of
 //! [`crate::domain::gen_params::parse_overrides`].
-
-use serde_json::{Map, Value};
 
 use crate::domain::audio_format::AudioFormat;
 use crate::domain::errors::DomainError;
+use crate::domain::gen_params::GenParams;
 use crate::domain::language::Language;
 use crate::domain::voice::VoiceMode;
 
@@ -24,7 +23,7 @@ pub struct SpeechSpec {
     format: AudioFormat,
     language: Language,
     speed: f32,
-    gen_params: Map<String, Value>,
+    gen_params: GenParams,
 }
 
 impl SpeechSpec {
@@ -66,7 +65,7 @@ impl SpeechSpec {
 
     /// The validated pass-through generation params.
     #[must_use]
-    pub fn gen_params(&self) -> &Map<String, Value> {
+    pub fn gen_params(&self) -> &GenParams {
         &self.gen_params
     }
 }
@@ -78,7 +77,7 @@ pub struct SpeechSpecBuilder {
     format: AudioFormat,
     language: Option<Language>,
     speed: f32,
-    gen_params: Map<String, Value>,
+    gen_params: GenParams,
 }
 
 impl SpeechSpecBuilder {
@@ -90,7 +89,7 @@ impl SpeechSpecBuilder {
             format: AudioFormat::default(),
             language: None,
             speed: 1.0,
-            gen_params: Map::new(),
+            gen_params: GenParams::new(),
         }
     }
 
@@ -124,7 +123,7 @@ impl SpeechSpecBuilder {
 
     /// Set the validated generation-param overrides.
     #[must_use]
-    pub fn gen_params(mut self, params: Map<String, Value>) -> Self {
+    pub fn gen_params(mut self, params: GenParams) -> Self {
         self.gen_params = params;
         self
     }
@@ -152,8 +151,8 @@ impl SpeechSpecBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::gen_params::GenValue;
     use crate::domain::voice::{StandardVoice, VoiceMode};
-    use serde_json::json;
 
     fn standard() -> VoiceMode {
         VoiceMode::Standard(StandardVoice::new("alloy").unwrap())
@@ -230,8 +229,8 @@ mod tests {
 
     #[test]
     fn carries_format_speed_and_gen_params() {
-        let mut params = Map::new();
-        params.insert("num_step".into(), json!(24));
+        let mut params = GenParams::new();
+        params.insert("num_step".into(), GenValue::Int(24));
         let spec = SpeechSpec::builder("hi")
             .voice(standard())
             .language(lang())
@@ -242,6 +241,6 @@ mod tests {
             .unwrap();
         assert_eq!(spec.format(), AudioFormat::Flac);
         assert!((spec.speed() - 1.5).abs() < f32::EPSILON);
-        assert_eq!(spec.gen_params().get("num_step"), Some(&json!(24)));
+        assert_eq!(spec.gen_params().get("num_step"), Some(&GenValue::Int(24)));
     }
 }

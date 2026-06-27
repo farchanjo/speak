@@ -23,7 +23,7 @@ use speak::ports::presenter::Presenter;
 
 use super::AppFacade;
 use super::args::{GlobalArgs, RealtimeArgs};
-use super::say::gen_to_map;
+use super::say::gen_to_params;
 
 /// Advertised file name for a captured realtime chunk.
 const CHUNK_NAME: &str = "chunk.wav";
@@ -197,7 +197,7 @@ fn build_options(
         voice,
         format: AudioFormat::parse(&cfg.tts.format)?,
         speed: cfg.tts.speed,
-        gen_params: gen_to_map(&cfg.tts.gen_params),
+        gen_params: gen_to_params(&cfg.tts.gen_params),
         chunk_secs: chunk_secs(cfg, args),
         device: (args.device != 0).then_some(AudioDeviceId(args.device)),
         outputs: args

@@ -9,13 +9,13 @@ use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use serde_json::{Map, Value};
 
 use speak::adapters::config::{self, Config};
 use speak::application::SayOptions;
 use speak::domain::audio_format::AudioFormat;
+use speak::domain::gen_params::{self, GenParams, GenValue};
 use speak::domain::language::Language;
-use speak::domain::{gen_params, speech_spec::SpeechSpec, voice_design};
+use speak::domain::{speech_spec::SpeechSpec, voice_design};
 use speak::ports::audio::AudioDeviceId;
 use speak::ports::presenter::{Presenter, Report, Table};
 use speak::ports::synthesizer::SynthesizedAudio;
@@ -139,47 +139,53 @@ fn report(
 }
 
 /// Merge configured `[tts.gen]` params, then overlay per-call `--set` overrides.
-pub fn gen_extra(cfg: &Config, sets: &[String]) -> Result<Map<String, Value>> {
-    let mut map = gen_to_map(&cfg.tts.gen_params);
+pub fn gen_extra(cfg: &Config, sets: &[String]) -> Result<GenParams> {
+    let mut params = gen_to_params(&cfg.tts.gen_params);
     for (key, value) in gen_params::parse_overrides(sets)? {
-        map.insert(key, value);
+        params.insert(key, value);
     }
-    Ok(map)
+    Ok(params)
 }
 
-/// Project the configured `[tts.gen]` params into a JSON map (unset => absent).
-pub fn gen_to_map(g: &config::Gen) -> Map<String, Value> {
-    use serde_json::json;
-    let mut m = Map::new();
-    let mut put = |k: &str, v: Option<Value>| {
+/// Project the configured `[tts.gen]` params into the domain [`GenParams`] value
+/// object (unset => absent); the openai adapter maps it to JSON at the boundary.
+pub fn gen_to_params(g: &config::Gen) -> GenParams {
+    let mut params = GenParams::new();
+    let mut put = |k: &str, v: Option<GenValue>| {
         if let Some(v) = v {
-            m.insert(k.to_owned(), v);
+            params.insert(k.to_owned(), v);
         }
     };
-    put("num_step", g.num_step.map(|v| json!(v)));
-    put("guidance_scale", g.guidance_scale.map(|v| json!(v)));
-    put("t_shift", g.t_shift.map(|v| json!(v)));
+    put("num_step", g.num_step.map(GenValue::Int));
+    put("guidance_scale", g.guidance_scale.map(GenValue::Float));
+    put("t_shift", g.t_shift.map(GenValue::Float));
     put(
         "layer_penalty_factor",
-        g.layer_penalty_factor.map(|v| json!(v)),
+        g.layer_penalty_factor.map(GenValue::Float),
     );
     put(
         "position_temperature",
-        g.position_temperature.map(|v| json!(v)),
+        g.position_temperature.map(GenValue::Float),
     );
-    put("class_temperature", g.class_temperature.map(|v| json!(v)));
-    put("denoise", g.denoise.map(|v| json!(v)));
-    put("preprocess_prompt", g.preprocess_prompt.map(|v| json!(v)));
-    put("postprocess_output", g.postprocess_output.map(|v| json!(v)));
+    put(
+        "class_temperature",
+        g.class_temperature.map(GenValue::Float),
+    );
+    put("denoise", g.denoise.map(GenValue::Bool));
+    put("preprocess_prompt", g.preprocess_prompt.map(GenValue::Bool));
+    put(
+        "postprocess_output",
+        g.postprocess_output.map(GenValue::Bool),
+    );
     put(
         "audio_chunk_duration",
-        g.audio_chunk_duration.map(|v| json!(v)),
+        g.audio_chunk_duration.map(GenValue::Float),
     );
     put(
         "audio_chunk_threshold",
-        g.audio_chunk_threshold.map(|v| json!(v)),
+        g.audio_chunk_threshold.map(GenValue::Float),
     );
-    m
+    params
 }
 
 /// Join positional text args, or read stdin when none were given.
@@ -201,27 +207,26 @@ pub fn resolve_text(parts: &[String]) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
-    fn gen_to_map_only_emits_set_params() {
+    fn gen_to_params_only_emits_set_params() {
         let params = config::Gen {
             num_step: Some(24),
             guidance_scale: Some(3.0),
             denoise: Some(true),
             ..config::Gen::default()
         };
-        let map = gen_to_map(&params);
-        assert_eq!(map.get("num_step"), Some(&json!(24)));
-        assert_eq!(map.get("guidance_scale"), Some(&json!(3.0)));
-        assert_eq!(map.get("denoise"), Some(&json!(true)));
+        let map = gen_to_params(&params);
+        assert_eq!(map.get("num_step"), Some(&GenValue::Int(24)));
+        assert_eq!(map.get("guidance_scale"), Some(&GenValue::Float(3.0)));
+        assert_eq!(map.get("denoise"), Some(&GenValue::Bool(true)));
         assert!(!map.contains_key("t_shift"));
         assert_eq!(map.len(), 3);
     }
 
     #[test]
-    fn gen_to_map_empty_when_nothing_set() {
-        assert!(gen_to_map(&config::Gen::default()).is_empty());
+    fn gen_to_params_empty_when_nothing_set() {
+        assert!(gen_to_params(&config::Gen::default()).is_empty());
     }
 
     #[test]

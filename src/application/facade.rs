@@ -207,9 +207,9 @@ impl<Speech, Audio, Codec> SpeakFacade<Speech, Audio, Codec> {
 mod tests {
     use super::*;
     use crate::application::fakes::{FakeAudio, FakeCodec, FakeSpeech};
+    use crate::domain::gen_params::GenParams;
     use crate::domain::realtime::RealtimeMode;
     use crate::domain::voice::{StandardVoice, VoiceMode};
-    use serde_json::Map;
 
     fn facade() -> SpeakFacade<FakeSpeech, FakeAudio, FakeCodec> {
         SpeakFacade::new(FakeSpeech::default(), FakeAudio::default(), FakeCodec)
@@ -277,7 +277,7 @@ mod tests {
             output_language: Language::parse("en").unwrap(),
             format: crate::domain::audio_format::AudioFormat::Mp3,
             speed: 1.0,
-            gen_params: Map::new(),
+            gen_params: GenParams::new(),
             chunk_secs: 5.0,
             device: None,
             outputs: Vec::new(),

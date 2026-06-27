@@ -180,7 +180,7 @@ impl SpeechSpecDto {
             format: spec.format().as_str().to_owned(),
             language: spec.language().as_str().to_owned(),
             speed: spec.speed(),
-            gen_params: spec.gen_params().clone(),
+            gen_params: super::genparams::to_json(spec.gen_params()),
         }
     }
 
@@ -191,7 +191,7 @@ impl SpeechSpecDto {
             .language(Language::parse(&self.language)?)
             .format(AudioFormat::parse(&self.format)?)
             .speed(self.speed)
-            .gen_params(self.gen_params)
+            .gen_params(super::genparams::from_json(self.gen_params))
             .build()?)
     }
 }

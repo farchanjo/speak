@@ -6,7 +6,7 @@
 //! tag text is preserved on the wire so known-good title-cased tags such as
 //! `"British Accent"` are sent verbatim.
 
-use anyhow::{Result, bail};
+use crate::domain::errors::DomainError;
 
 /// The canonical voice-design tags accepted by the server `instruct` field.
 pub const CANONICAL_TAGS: &[&str] = &[
@@ -43,7 +43,7 @@ pub struct VoiceDesign {
 
 impl VoiceDesign {
     /// Parse and validate a comma-separated tag list; rejects unknown / free text.
-    pub fn parse(input: &str) -> Result<Self> {
+    pub fn parse(input: &str) -> Result<Self, DomainError> {
         let mut tags = Vec::new();
         for raw in input.split(',') {
             let tag = raw.trim();
@@ -51,15 +51,12 @@ impl VoiceDesign {
                 continue;
             }
             if !is_canonical(tag) {
-                bail!(
-                    "invalid voice-design tag '{tag}'; instruct accepts only canonical tags \
-                     (see `say --list-designs`)"
-                );
+                return Err(DomainError::InvalidVoiceDesignTag(tag.to_owned()));
             }
             tags.push(tag.to_owned());
         }
         if tags.is_empty() {
-            bail!("voice design is empty; pass one or more canonical tags");
+            return Err(DomainError::EmptyVoiceDesign);
         }
         Ok(Self { tags })
     }

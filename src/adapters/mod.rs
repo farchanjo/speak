@@ -10,6 +10,7 @@ pub mod chatmt;
 pub mod config;
 pub mod coreaudio;
 pub mod daemon;
+pub mod genparams;
 pub mod headless;
 pub mod http;
 pub mod libav;

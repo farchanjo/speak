@@ -19,10 +19,10 @@
 //! [`pump_frame`]: RealtimeUseCase::pump_frame
 
 use anyhow::Result;
-use serde_json::{Map, Value};
 
 use crate::application::playback;
 use crate::domain::audio_format::AudioFormat;
+use crate::domain::gen_params::GenParams;
 use crate::domain::language::Language;
 use crate::domain::pcm::PcmBuffer;
 use crate::domain::realtime::RealtimeMode;
@@ -60,7 +60,7 @@ pub struct RealtimeOptions {
     /// TTS speed multiplier.
     pub speed: f32,
     /// Pass-through generation params for the TTS request.
-    pub gen_params: Map<String, Value>,
+    pub gen_params: GenParams,
     /// Capture chunk length in seconds.
     pub chunk_secs: f64,
     /// Capture device (`None` = system default input).
@@ -326,7 +326,7 @@ mod tests {
             output_language: Language::parse("en").unwrap(),
             format: AudioFormat::Mp3,
             speed: 1.0,
-            gen_params: Map::new(),
+            gen_params: GenParams::new(),
             chunk_secs: 5.0,
             device: None,
             outputs: Vec::new(),

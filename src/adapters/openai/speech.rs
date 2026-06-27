@@ -148,7 +148,7 @@ impl Synthesizer for OpenAiAdapter {
             .speed(spec.speed())
             .language(spec.language().as_str())
             .voice_mode(spec.voice())
-            .gen_params(spec.gen_params().clone())
+            .gen_params(crate::adapters::genparams::to_json(spec.gen_params()))
             .build();
         self.post_audio("/v1/audio/speech", serde_json::to_value(&body)?)
             .await

@@ -2,9 +2,9 @@
 //!
 //! The pure failure vocabulary raised by the domain value objects and the
 //! [`crate::domain::speech_spec::SpeechSpec`] aggregate. It implements
-//! [`std::error::Error`] so callers that use `anyhow` get an automatic
-//! conversion, while the domain itself stays free of any `anyhow`/framework
-//! dependency (ADR-0003: the domain is pure, zero I/O).
+//! [`std::error::Error`] so adapter-layer callers get an automatic conversion
+//! into their own error type, while the domain itself stays free of any
+//! error-handling-framework dependency (ADR-0003: the domain is pure, zero I/O).
 
 use std::fmt::{self, Display};
 
@@ -25,6 +25,16 @@ pub enum DomainError {
     InvalidRealtimeMode(String),
     /// Speed multiplier was non-finite or non-positive.
     InvalidSpeed(f32),
+    /// A `--set` generation-param key was not a canonical key (nor `steps`).
+    UnknownGenParam(String),
+    /// A `--set` override was not in `key=value` form.
+    MalformedOverride(String),
+    /// A `--set` generation-param value was empty.
+    EmptyGenParamValue(String),
+    /// A voice-design tag was not one of the canonical tags.
+    InvalidVoiceDesignTag(String),
+    /// A voice design carried no canonical tags.
+    EmptyVoiceDesign,
 }
 
 impl Display for DomainError {
@@ -48,6 +58,29 @@ impl Display for DomainError {
             }
             Self::InvalidSpeed(v) => {
                 write!(f, "invalid speed {v}; expected a positive finite value")
+            }
+            Self::UnknownGenParam(key) => {
+                write!(
+                    f,
+                    "unknown generation param '{key}'; valid keys: {}, steps",
+                    crate::domain::gen_params::CANONICAL_KEYS.join(", ")
+                )
+            }
+            Self::MalformedOverride(entry) => {
+                write!(f, "--set expects key=value, got '{entry}'")
+            }
+            Self::EmptyGenParamValue(key) => {
+                write!(f, "--set value is empty for key '{key}'")
+            }
+            Self::InvalidVoiceDesignTag(tag) => {
+                write!(
+                    f,
+                    "invalid voice-design tag '{tag}'; instruct accepts only canonical tags \
+                     (see `say --list-designs`)"
+                )
+            }
+            Self::EmptyVoiceDesign => {
+                f.write_str("voice design is empty; pass one or more canonical tags")
             }
         }
     }
@@ -84,11 +117,12 @@ mod tests {
 
     #[test]
     fn is_a_std_error() {
-        // Confirms the `?`-into-`anyhow` bridge the domain relies on.
+        // Confirms the std::error::Error bridge adapter callers rely on, with no
+        // error-handling framework reaching into the pure domain.
         fn assert_error<E: std::error::Error>(_: &E) {}
         assert_error(&DomainError::EmptyInput);
-        let any: anyhow::Error = DomainError::InvalidSpeed(0.0).into();
-        assert!(any.to_string().contains("speed"));
+        let boxed: Box<dyn std::error::Error> = Box::new(DomainError::InvalidSpeed(0.0));
+        assert!(boxed.to_string().contains("speed"));
     }
 
     #[test]
