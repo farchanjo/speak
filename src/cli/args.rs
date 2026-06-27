@@ -39,22 +39,46 @@ pub(crate) struct Cli {
 #[derive(Args, Debug)]
 pub(crate) struct GlobalArgs {
     /// Server base URL.
-    #[arg(long, global = true, env = "SPEAK_HOST", value_name = "URL")]
+    #[arg(
+        short = 'H',
+        long,
+        global = true,
+        env = "SPEAK_HOST",
+        value_name = "URL"
+    )]
     pub host: Option<String>,
     /// Bearer API key (sent only when set).
-    #[arg(long, global = true, env = "SPEAK_API_KEY", value_name = "KEY")]
+    #[arg(
+        short = 'K',
+        long,
+        global = true,
+        env = "SPEAK_API_KEY",
+        value_name = "KEY"
+    )]
     pub api_key: Option<String>,
     /// Language hint (e.g. pt-BR, en).
-    #[arg(long, global = true, env = "SPEAK_LANG", value_name = "LANG")]
+    #[arg(
+        short = 'L',
+        long,
+        global = true,
+        env = "SPEAK_LANG",
+        value_name = "LANG"
+    )]
     pub lang: Option<String>,
-    /// TTS voice.
-    #[arg(long, global = true, env = "SPEAK_VOICE", value_name = "VOICE")]
+    /// TTS voice (`-v`/`-V` are taken by verbose/version).
+    #[arg(
+        short = 'C',
+        long,
+        global = true,
+        env = "SPEAK_VOICE",
+        value_name = "VOICE"
+    )]
     pub voice: Option<String>,
     /// Suppress non-essential status logging.
     #[arg(short = 'q', long, global = true)]
     pub quiet: bool,
     /// Emit machine-readable JSON where the command supports it (FR-16).
-    #[arg(long, global = true)]
+    #[arg(short = 'J', long, global = true)]
     pub json: bool,
     /// Increase console diagnostics verbosity (repeatable: -v info, -vv debug,
     /// -vvv trace). Diagnostics always go to the rotating `~/.speak/logs` file.
@@ -128,34 +152,34 @@ pub(crate) struct SayArgs {
     #[arg(short = 'o', long, value_name = "FILE")]
     pub out: Option<PathBuf>,
     /// Do not play the audio locally.
-    #[arg(long)]
+    #[arg(short = 'n', long)]
     pub no_play: bool,
     /// Speed multiplier.
-    #[arg(long, default_value_t = 1.0, value_name = "F")]
+    #[arg(short = 's', long, default_value_t = 1.0, value_name = "F")]
     pub speed: f32,
     /// Audio response format (overrides config / `SPEAK_FORMAT`).
-    #[arg(long, value_enum, value_name = "FMT")]
+    #[arg(short = 'f', long, value_enum, value_name = "FMT")]
     pub format: Option<AudioFormat>,
     /// Voice design tags, comma-separated (e.g. "Female, British Accent").
-    #[arg(long, value_name = "TAGS")]
+    #[arg(short = 'i', long, value_name = "TAGS")]
     pub instruct: Option<String>,
     /// Reference transcript when cloning a saved voice.
-    #[arg(long, value_name = "TEXT")]
+    #[arg(short = 'r', long, value_name = "TEXT")]
     pub ref_text: Option<String>,
     /// Target duration hint in seconds.
-    #[arg(long, value_name = "SECS")]
+    #[arg(short = 'd', long, value_name = "SECS")]
     pub duration: Option<f32>,
     /// Repeatable generation param, key=value (e.g. --set `num_step=32`).
-    #[arg(long = "set", value_name = "KEY=VALUE")]
+    #[arg(short = 'S', long = "set", value_name = "KEY=VALUE")]
     pub set: Vec<String>,
     /// Output device `AudioDeviceID` for playback; repeatable to fan out (FR-11).
-    #[arg(long = "output-device", value_name = "ID")]
+    #[arg(short = 'D', long = "output-device", value_name = "ID")]
     pub output_device: Vec<u32>,
     /// Print the valid voice-design tags and exit.
-    #[arg(long)]
+    #[arg(short = 'g', long)]
     pub list_designs: bool,
     /// Use the server's native `/tts` endpoint instead of `/v1/audio/speech`.
-    #[arg(long)]
+    #[arg(short = 'N', long)]
     pub native: bool,
 }
 
@@ -166,10 +190,10 @@ pub(crate) struct TranscribeArgs {
     #[arg(value_name = "FILE")]
     pub file: PathBuf,
     /// Source language hint.
-    #[arg(long, value_name = "LANG")]
+    #[arg(short = 'l', long, value_name = "LANG")]
     pub language: Option<String>,
     /// Transcript output format.
-    #[arg(long, value_enum, default_value_t = TextFormat::Text)]
+    #[arg(short = 'f', long, value_enum, default_value_t = TextFormat::Text)]
     pub format: TextFormat,
 }
 
@@ -180,10 +204,10 @@ pub(crate) struct TranslateArgs {
     #[arg(value_name = "FILE")]
     pub file: PathBuf,
     /// Target language (`en` uses Whisper translate; others use chat-MT, T039).
-    #[arg(long, default_value = "en", value_name = "LANG")]
+    #[arg(short = 't', long, default_value = "en", value_name = "LANG")]
     pub to: String,
     /// Output format.
-    #[arg(long, value_enum, default_value_t = TextFormat::Text)]
+    #[arg(short = 'f', long, value_enum, default_value_t = TextFormat::Text)]
     pub format: TextFormat,
 }
 
@@ -198,34 +222,50 @@ pub(crate) struct TranslateArgs {
         .multiple(false)
         .args(["translate", "no_translate", "echo"])
 ))]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "clap flag struct: the mutually-exclusive mode group plus the VAD toggle are independent CLI switches, not a state enum"
+)]
 pub(crate) struct RealtimeArgs {
     /// Source language hint (auto-detect when omitted).
-    #[arg(long, value_name = "LANG")]
+    #[arg(short = 'f', long, value_name = "LANG")]
     pub from: Option<String>,
     /// Target language for `--translate` (`en` uses Whisper translate directly).
-    #[arg(long, default_value = "en", value_name = "LANG")]
+    #[arg(short = 't', long, default_value = "en", value_name = "LANG")]
     pub to: String,
     /// Translate the source speech, then re-voice the translation (default).
-    #[arg(long)]
+    #[arg(short = 'T', long)]
     pub translate: bool,
     /// Re-voice the source transcript without translating it.
-    #[arg(long = "no-translate")]
+    #[arg(short = 'n', long = "no-translate")]
     pub no_translate: bool,
     /// Play the raw capture back, then re-voice it.
-    #[arg(long)]
+    #[arg(short = 'e', long)]
     pub echo: bool,
     /// Voice design tags for the spoken output (e.g. "Female, British Accent").
-    #[arg(long, value_name = "TAGS")]
+    #[arg(short = 'i', long, value_name = "TAGS")]
     pub instruct: Option<String>,
     /// Output device `AudioDeviceID` for playback; repeatable to fan out (FR-11).
-    #[arg(long = "output-device", value_name = "ID")]
+    #[arg(short = 'D', long = "output-device", value_name = "ID")]
     pub output_device: Vec<u32>,
     /// Chunk length in seconds.
-    #[arg(long, default_value_t = 5, value_name = "SECS")]
+    #[arg(short = 'c', long, default_value_t = 5, value_name = "SECS")]
     pub chunk: u64,
-    /// Input device index (0 = system default).
-    #[arg(long, default_value_t = 0, value_name = "IDX")]
+    /// Capture device `AudioDeviceID` (0 = system default input).
+    #[arg(short = 'd', long, default_value_t = 0, value_name = "ID")]
     pub device: u32,
+    /// Disable the silence/VAD gate (send every captured chunk).
+    #[arg(short = 'x', long = "no-vad")]
+    pub no_vad: bool,
+    /// Silence-gate threshold in dBFS for this run (overrides config). dBFS is
+    /// negative (e.g. -50), so hyphen-prefixed values are accepted.
+    #[arg(
+        short = 'F',
+        long = "vad-floor",
+        value_name = "DBFS",
+        allow_negative_numbers = true
+    )]
+    pub vad_floor: Option<f64>,
 }
 
 impl RealtimeArgs {
@@ -250,19 +290,19 @@ pub(crate) struct RecordArgs {
     #[arg(short = 'o', long, value_name = "FILE")]
     pub output: PathBuf,
     /// Capture duration in seconds.
-    #[arg(long, value_name = "SECS")]
+    #[arg(short = 'd', long, value_name = "SECS")]
     pub duration: f64,
     /// Capture device `AudioDeviceID` (omit for the system default input).
-    #[arg(long, value_name = "ID")]
+    #[arg(short = 'D', long, value_name = "ID")]
     pub device: Option<u32>,
     /// Output container.
-    #[arg(long, value_enum, default_value_t = RecordFormatArg::Wav)]
+    #[arg(short = 'f', long, value_enum, default_value_t = RecordFormatArg::Wav)]
     pub format: RecordFormatArg,
     /// Resample to this sample rate (Hz); omit to keep the captured rate.
-    #[arg(long, value_name = "HZ")]
+    #[arg(short = 'r', long, value_name = "HZ")]
     pub sample_rate: Option<u32>,
     /// Resample to this channel count; omit to keep the captured channels.
-    #[arg(long, value_name = "N")]
+    #[arg(short = 'c', long, value_name = "N")]
     pub channels: Option<u16>,
 }
 
@@ -328,10 +368,10 @@ pub(crate) struct VoiceAddArgs {
     #[arg(value_name = "NAME")]
     pub name: String,
     /// Reference audio file.
-    #[arg(long, value_name = "FILE")]
+    #[arg(short = 'a', long, value_name = "FILE")]
     pub audio: PathBuf,
     /// Reference transcript for the audio.
-    #[arg(long, value_name = "TEXT")]
+    #[arg(short = 'r', long, value_name = "TEXT")]
     pub ref_text: Option<String>,
 }
 
@@ -428,6 +468,21 @@ mod tests {
     }
 
     #[test]
+    fn realtime_accepts_negative_vad_floor() {
+        use clap::Parser;
+        // dBFS is negative; the flag must accept a hyphen-prefixed value.
+        let cli = Cli::try_parse_from(["speak", "realtime", "--vad-floor", "-50", "--no-vad"])
+            .expect("negative --vad-floor must parse");
+        match cli.command {
+            Command::Realtime(a) => {
+                assert_eq!(a.vad_floor, Some(-50.0));
+                assert!(a.no_vad);
+            }
+            other => panic!("expected realtime, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn realtime_mode_defaults_to_translate_and_honours_flags() {
         use speak::domain::realtime::RealtimeMode;
         let make = |translate, no_translate, echo| RealtimeArgs {
@@ -440,6 +495,8 @@ mod tests {
             output_device: Vec::new(),
             chunk: 5,
             device: 0,
+            no_vad: false,
+            vad_floor: None,
         };
         assert_eq!(make(false, false, false).mode(), RealtimeMode::Translate);
         assert_eq!(make(true, false, false).mode(), RealtimeMode::Translate);

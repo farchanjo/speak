@@ -207,8 +207,11 @@ fn build_options(
             .map(AudioDeviceId)
             .collect(),
         volume: cfg.audio.output.volume,
-        vad: cfg.audio.input.vad,
-        silence_floor: silence_floor(cfg.audio.input.silence_threshold_db),
+        vad: cfg.audio.input.vad && !args.no_vad,
+        silence_floor: silence_floor(
+            args.vad_floor
+                .unwrap_or(cfg.audio.input.silence_threshold_db),
+        ),
     })
 }
 

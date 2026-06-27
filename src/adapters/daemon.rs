@@ -75,7 +75,7 @@ pub enum DaemonCmd {
 #[derive(clap::Args, Debug)]
 pub struct DaemonArgs {
     /// Run attached in the foreground (also the current default).
-    #[arg(long)]
+    #[arg(short = 'f', long)]
     pub foreground: bool,
     #[command(subcommand)]
     action: Option<DaemonCmd>,
