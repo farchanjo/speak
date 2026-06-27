@@ -19,3 +19,5 @@
 {"mode":"enforce","op":"write","override":false,"path":"docs/arch/sdd/001-speak-cli-speech-client-for-solaris-server/spec.md","ts":"2026-06-26T21:25:17.007618Z","verdict":"allow"}
 {"mode":"enforce","op":"write","override":false,"path":"docs/arch/schemas/voice.cue","ts":"2026-06-26T21:25:17.010291Z","verdict":"allow"}
 {"mode":"enforce","op":"write","override":false,"path":"docs/arch/sdd/001-speak-cli-speech-client-for-solaris-server/tasks.md","ts":"2026-06-27T04:23:43.39639Z","verdict":"allow"}
+{"mode":"enforce","op":"write","override":false,"path":"tests/cli.rs","ts":"2026-06-27T06:10:12.712866Z","verdict":"deny"}
+{"mode":"enforce","op":"write","override":false,"path":"docs/arch/specs/acceptance-coverage.md","ts":"2026-06-27T06:10:12.716743Z","verdict":"allow"}
