@@ -198,10 +198,10 @@ and prints the real one. Drive it non-interactively via the harness in
 banner is stripped).
 
 > **Full guide: [`scripts/debug/CLAUDE.md`](scripts/debug/CLAUDE.md)** — breakpoints,
-> variable analysis, memory dumps, watchpoints, live attach, panics, the Java/JDWP
-> flow, and the **anti-lock-in doctrine** (never wait on a breakpoint that can't be
-> reached: bound every session with a timeout, verify the breakpoint resolved to ≥1
-> location before `run`, break on a path the args actually execute).
+> variable analysis, memory dumps, watchpoints, live attach, panics, and the
+> **anti-lock-in doctrine** (never wait on a breakpoint that can't be reached: bound
+> every session with a timeout, verify the breakpoint resolved to ≥1 location before
+> `run`, break on a path the args actually execute).
 
 ```bash
 # backtrace + real values at a line (grounds "what is cfg here?")
@@ -225,8 +225,3 @@ Direct scripts (same flags, outside make): `scripts/debug/rust-lldb-batch.sh`,
 *struct` — the whole-struct synthetic walk can stall (the harness caps it with a
 timeout anyway). For the forking/self-replacing daemon, `debug-attach` by PID, don't
 `launch`. FFI/ObjC frames show as C — set breakpoints on Rust symbols.
-
-**Java** (the Maven/Gradle projects, not this repo): start the JVM with JDWP
-(`mvnDebug`, `mvn -Dmaven.surefire.debug test`, or `gradle … --debug-jvm`) then drive
-`jdb` headless via `~/bin/jdwp-trace -p 5005 -s 'pkg.Class:42' -c where -c locals -c cont`.
-For a live snapshot without breakpoints: `jstack <pid>` / `jcmd <pid> Thread.print`.

@@ -1,8 +1,8 @@
-# Debugging guide — headless lldb / jdb (CLAUDE.md)
+# Debugging guide — headless lldb (CLAUDE.md)
 
-How to debug `speak` (Rust) and the Java projects with breakpoints, variable
-analysis, and memory dumps — driven **non-interactively** so an agent (or a
-script) can extract real runtime state. Root `CLAUDE.md §10` points here.
+How to debug `speak` (Rust) with breakpoints, variable analysis, and memory dumps
+— driven **non-interactively** so an agent (or a script) can extract real runtime
+state. Root `CLAUDE.md §10` points here.
 
 The whole point: **read runtime truth instead of guessing from source.** A wrong
 field name or an assumed value is where the analysis goes wrong; the debugger
@@ -19,7 +19,7 @@ prints the real one (e.g. `cfg->server.timeout = 300`, and it *rejects*
 
 Four guards, always on:
 
-1. **Hard timeout on every session.** The harness wraps lldb/jdb in
+1. **Hard timeout on every session.** The harness wraps lldb in
    `timeout -s KILL` (default 60s). Never invoke a bare `lldb -o run` that can
    block indefinitely. If you call lldb by hand, prefix `timeout 60`.
 2. **Verify the breakpoint resolved BEFORE running.** `breakpoint set` prints the
@@ -66,7 +66,7 @@ make build-dbg               # -> target/release-dbg/speak
 ```
 
 Direct scripts (same flags): `rust-lldb-batch.sh`, `rust-panic-trace.sh`,
-`rust-lldb-attach.sh` (this dir). Java: `~/bin/jdwp-trace`.
+`rust-lldb-attach.sh` (this dir).
 
 Every script: hard `timeout`, Rust pretty-printer banner stripped, output starts at
 the first process stop.
@@ -206,47 +206,12 @@ a panic — it prints to stderr and exits non-zero; just run normally and read s
 
 ---
 
-## 9. Java / JVM (the Maven/Gradle projects)
-
-Same anti-lock-in rules. Start the JVM with JDWP (`suspend=y` makes it wait for the
-debugger — so it can't run past your breakpoint before you attach):
-
-```bash
-mvnDebug <goal>                          # Maven app, JDWP :8000
-mvn -Dmaven.surefire.debug test          # Maven tests, JDWP :5005
-./gradlew <task> --debug-jvm             # Gradle, JDWP :5005
-java -agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005 -jar app.jar
-```
-
-Then drive `jdb` headless (timeout-wrapped, breakpoints + per-stop commands):
-```bash
-jdwp-trace -p 5005 -s 'com.foo.Bar:42' -c where -c locals -c cont
-jdwp-trace -p 8000 -s 'com.foo.Service.process' -c 'where' -c 'print arg' -c 'dump this' -c cont
-```
-`-s pkg.Class:line` or `-s pkg.Class.method`; `-c` = jdb command at each stop
-(`where`, `locals`, `print x`, `dump obj`, `eval expr`, `cont`). The same rule
-holds: if the breakpoint class/line never loads/executes, the JVM (suspend=y) sits
-forever — `jdwp-trace`'s timeout breaks the wait; check the class is actually on the
-path you triggered.
-
-**Snapshot WITHOUT breakpoints** (live JVM, no JDWP, zero hang risk) — prefer these
-for "what is it doing / is it leaking":
-```bash
-jstack <pid>                 # all-thread stack (deadlocks, hangs)
-jcmd <pid> Thread.print
-jmap -histo <pid>            # heap histogram (leaks)
-jcmd <pid> GC.heap_info
-java -XX:StartFlightRecording=duration=60s,filename=rec.jfr ...  &&  jfr print rec.jfr
-```
-
----
-
-## 10. Pick-the-tool flow
+## 9. Pick-the-tool flow
 
 ```mermaid
 flowchart TD
   Q{symptom?} --> P[panics] --> PT["make debug-panic / break rust_panic"]
-  Q --> H[hangs / no progress] --> AT["attach by PID -> bt all (Rust)\njstack <pid> (Java)"]
+  Q --> H[hangs / no progress] --> AT["attach by PID -> bt all (make debug-attach)"]
   Q --> W[wrong value / wrong field] --> BT["make debug-bt + p expr / image lookup -t Type"]
   Q --> M[corruption / raw bytes] --> MEM["p &var -> memory read"]
   Q --> C[when does X change?] --> WP["watchpoint set variable X (delete after)"]
@@ -255,7 +220,7 @@ flowchart TD
 
 ---
 
-## 11. Anti-patterns (the lock-in traps)
+## 10. Anti-patterns (the lock-in traps)
 
 | ❌ Don't | ✅ Do |
 |---|---|
@@ -270,7 +235,7 @@ flowchart TD
 
 ---
 
-## 12. Cleanup (no orphans)
+## 11. Cleanup (no orphans)
 
 The harness kills on timeout. If you ever interrupt a manual session, clear strays:
 ```bash
