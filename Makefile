@@ -17,8 +17,22 @@ BIN     := target/release/speak
 DIST    := dist
 LOGDIR  := $(HOME)/.speak/logs
 
+# ---- Apple code signing (macOS only; no-ops elsewhere) ------------------------
+# `make install` / `make release` sign the Mach-O binary on macOS. The default
+# identity is the first valid codesigning identity in the keychain; it falls back
+# to ad-hoc ("-") when none exists (e.g. CI), so the build never breaks off-mac.
+# Distribution build (Developer ID + hardened runtime, notarization-ready):
+#   make install CODESIGN_IDENTITY="Developer ID Application: Name (TEAMID)" \
+#                CODESIGN_OPTS="--options runtime --timestamp"
+UNAME_S           := $(shell uname -s)
+# Leave empty to auto-detect the first keychain identity at sign time (ad-hoc
+# fallback). Set explicitly for a chosen cert (e.g. a Developer ID).
+CODESIGN_IDENTITY ?=
+CODESIGN_OPTS     ?=
+SIGN_BIN          ?= $(BIN)
+
 .DEFAULT_GOAL := help
-.PHONY: help build build-release build-dbg run install link \
+.PHONY: help build build-release build-dbg run install link sign \
         check clippy clippy-strict clippy-fix fmt fmt-fix test test-int watch expand doc lint gates \
         debug debug-bt debug-panic debug-attach \
         spec validate verify analyze \
@@ -42,10 +56,31 @@ build-release: ## Optimized host build (-> target/release/speak)
 run: ## Run debug build (pass args via ARGS=…): make run ARGS='say "hi"'
 	$(CARGO) run -- $(ARGS)
 
-install: build-release link ## Build release + symlink bin/speak
+install: build-release sign link ## Build release + Apple code-sign (macOS) + symlink bin/speak
 
 link: ## Refresh bin/speak symlink -> target/release/speak
 	@mkdir -p bin && ln -sf ../$(BIN) bin/speak && echo "bin/speak -> $(BIN)"
+
+sign: ## Apple code-sign $(SIGN_BIN) (macOS only; auto-detects identity, ad-hoc fallback)
+	@if [ "$(UNAME_S)" != "Darwin" ]; then \
+		echo "⏭  codesign skipped — not macOS (uname=$(UNAME_S))"; \
+	elif [ ! -f "$(SIGN_BIN)" ]; then \
+		echo "✗ codesign: binary not found: $(SIGN_BIN)" >&2; exit 1; \
+	else \
+		id="$(CODESIGN_IDENTITY)"; \
+		[ -n "$$id" ] || id="$$(security find-identity -v -p codesigning 2>/dev/null | awk '/[0-9]+\)/{print $$2; exit}')"; \
+		[ -n "$$id" ] || id="-"; \
+		if [ "$$id" = "-" ]; then \
+			echo "🔏 codesign [ad-hoc] $(SIGN_BIN)"; \
+		else \
+			echo "🔏 codesign [$$id] $(SIGN_BIN)"; \
+		fi; \
+		codesign --force --sign "$$id" $(CODESIGN_OPTS) "$(SIGN_BIN)" || exit 1; \
+		codesign --verify --strict --verbose=2 "$(SIGN_BIN)" || exit 1; \
+		echo "✅ signed + verified"; \
+		codesign --display --verbose=2 "$(SIGN_BIN)" 2>&1 \
+			| grep -E 'Identifier=|Authority=|TeamIdentifier=|Signature=' || true; \
+	fi
 
 ## ---------------------------------------------------------------- debug / quality
 check: ## Fast type-check (no codegen)
@@ -117,8 +152,12 @@ gates: build-release clippy fmt test spec ## FULL pre-commit bar (build+lint+fmt
 	@echo "✅ all gates green"
 
 ## ---------------------------------------------------------------- release
-release: ## Build + tarball + sha256 for $(TARGET) -> dist/
+release: ## Build + Apple-sign (darwin) + tarball + sha256 for $(TARGET) -> dist/
 	$(CARGO) build --release --target $(TARGET)
+	@case "$(TARGET)" in \
+		*apple-darwin*) $(MAKE) --no-print-directory sign SIGN_BIN=target/$(TARGET)/release/speak ;; \
+		*) echo "⏭  codesign skipped — non-Apple target $(TARGET)" ;; \
+	esac
 	@mkdir -p $(DIST)
 	tar -C target/$(TARGET)/release -czf $(DIST)/speak-$(VERSION)-$(TARGET).tar.gz speak
 	@shasum -a 256 $(DIST)/speak-$(VERSION)-$(TARGET).tar.gz \
