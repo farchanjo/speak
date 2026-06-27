@@ -9,6 +9,7 @@
 //! shared by the CLI and the daemon driving adapters (ADR-0005).
 
 pub mod check;
+pub mod facade;
 pub mod playback;
 pub mod realtime;
 pub mod record;
@@ -18,6 +19,7 @@ pub mod translate;
 pub mod voices;
 
 pub use check::{CheckOutcome, CheckUseCase, HealthOutcome};
+pub use facade::SpeakFacade;
 pub use playback::PlaybackStats;
 pub use realtime::{FrameKind, RealtimeEvent, RealtimeOptions, RealtimeStep, RealtimeUseCase};
 pub use record::{RecordOptions, RecordOutcome, RecordUseCase};

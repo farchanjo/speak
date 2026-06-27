@@ -273,7 +273,15 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   doubles cover all three modes, the VAD gate, empty results, and frame pumping;
   the realtime CLI flags (`--translate`/`--no-translate`/`--echo`,
   `--output-device`) are T051.)
-- [ ] T045 `[application]` application **Facade** shared by CLI and daemon.
+- [x] T045 `[application]` application **Facade** shared by CLI and daemon.
+  (`src/application/facade.rs`: `SpeakFacade` is generic over the three adapter
+  roles the composition root injects (`Speech`/`Audio`/`Codec`) and owns them;
+  every method (`say`/`transcribe`/`translate`/`add_voice`/`list_voices`/
+  `remove_voice`/`record`/`realtime_step`/`realtime_frame`/`health`/`check`)
+  builds the relevant use case from borrows and delegates, so the CLI and daemon
+  driving adapters share one entry. Per-method `where` bounds keep it
+  constructible even when a role lacks a port. Unit-tested end-to-end over the
+  in-memory port doubles; the CLI/daemon wiring onto the Facade is T051/T053/T054.)
 - [x] T047 `[application]` `check`/`health` use case: orchestrate the `ServerProbe`
   port (`GET /health`, `GET /v1/models`, realtime capability probe) and the
   `accel` cross-cutting probe into the data printed by `speak health` and

@@ -204,13 +204,30 @@ descriptors gained `uid`/`sample_rate`/`is_default_*` so `speak devices` (T056)
 can surface FR-10; the `AudioDeviceId` newtype is the only HAL value crossing the
 port (a documented `u32` selector, not a live CoreAudio handle).
 
-The `application/` use cases and the remaining `adapters/*` (config, sse, chatmt,
-retry) split are still tracked in `tasks.md`; the CLI
-`say`/`transcribe`/`translate`/`voices` paths now drive the `openai` ports
-directly (in-process), with the daemon-forward / Facade unification deferred to
-T045/T053/T054. This ADR section records the lib/bin boundary, the ports +
-domain landing, and the first three driven adapters as concrete steps toward the
-full layout.
+The `application/` layer has now landed (`src/application/`, T040-T047): the
+`say`, `transcribe`, `translate`, `voices`, `record`, `realtime`, and
+`check`/`health` use cases plus the `SpeakFacade` (T045) that exposes one
+cohesive surface to both driving adapters. Each use case is generic over the
+driven ports it needs (the simpler ones over individual ports; `realtime` and the
+Facade over the three adapter-role bundles `Speech`/`Audio`/`Codec` that mirror
+the real composition), so the layer is fully unit-testable with in-memory port
+doubles and **no** `reqwest`/`ffmpeg`/`objc2`/`async-openai` type crosses the
+application boundary — only `anyhow::Result`, the domain value objects, and the
+port DTOs. The `say`/`realtime` playback routing (single device or N-device
+fan-out) is centralised in one `application::playback` helper to avoid
+duplication; the realtime silence gate is a pure RMS over the domain `PcmBuffer`.
+The cross-cutting `accel` probe is folded into the `check` use case as plain
+data, never reached through a port (preserving the inward dependency rule). To
+let the `check`/`health` use case bind to a real adapter, the `openai` adapter's
+`ServerProbe` impl also landed (`GET /health`, `GET /v1/models`, the
+`POST /v1/realtime/translate` runtime capability probe), live-verified against
+solaris. The remaining `adapters/*` (config, sse, chatmt, retry) split, the CLI
+wiring of each subcommand onto the Facade (T051/T055), the daemon-forward
+unification (T053), and the composition root (T054) are still tracked in
+`tasks.md`; the CLI `say`/`transcribe`/`translate`/`voices` paths drive the
+`openai` ports directly in-process today. This ADR section records the lib/bin
+boundary, the ports + domain landing, the first three driven adapters, and the
+application use-case + Facade layer as concrete steps toward the full layout.
 
 The Validate phase added a real test suite exercising this core: domain
 value-object units (voice-design tag validation, gen-param keys, retry/backoff
