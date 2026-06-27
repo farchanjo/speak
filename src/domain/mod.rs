@@ -10,6 +10,7 @@
 //! and the shared failure vocabulary ([`errors::DomainError`]).
 
 pub mod audio_format;
+pub mod capture_source;
 pub mod errors;
 pub mod gen_params;
 pub mod language;

@@ -35,6 +35,8 @@ pub enum DomainError {
     InvalidVoiceDesignTag(String),
     /// A voice design carried no canonical tags.
     EmptyVoiceDesign,
+    /// A capture-source token was not `input`/`output` (ADR-0015).
+    InvalidCaptureSource(String),
 }
 
 impl Display for DomainError {
@@ -81,6 +83,9 @@ impl Display for DomainError {
             }
             Self::EmptyVoiceDesign => {
                 f.write_str("voice design is empty; pass one or more canonical tags")
+            }
+            Self::InvalidCaptureSource(v) => {
+                write!(f, "invalid capture source '{v}'; expected input|output")
             }
         }
     }

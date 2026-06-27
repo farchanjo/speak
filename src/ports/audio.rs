@@ -8,6 +8,7 @@
 
 use anyhow::Result;
 
+use crate::domain::capture_source::{CaptureDirection, CaptureSource};
 use crate::domain::pcm::PcmBuffer;
 
 /// A `CoreAudio` device identifier (`AudioDeviceID`), surfaced by `speak devices`.
@@ -76,6 +77,24 @@ pub trait AudioSource {
 
     /// Enumerate the available input devices.
     fn inputs(&self) -> Result<Vec<AudioDevice>>;
+
+    /// Capture `secs` seconds from a [`CaptureSource`] Strategy (ADR-0015): an
+    /// input device (mic / line-in) or the host's output (system / sound-card
+    /// playback). The default routes `Input` to [`capture`](Self::capture) and
+    /// rejects `Output` with an actionable error; an adapter that supports the
+    /// native output tap overrides this. Channel selection is applied by the
+    /// caller after capture (ADR-0013), so this honors only the direction and
+    /// device.
+    async fn capture_for(&self, source: &CaptureSource, secs: f64) -> Result<PcmBuffer> {
+        match source.direction() {
+            CaptureDirection::Input => self.capture(source.device().map(AudioDeviceId), secs).await,
+            CaptureDirection::Output => anyhow::bail!(
+                "capturing the host output is not available on this build/OS yet; route the \
+                 output to a virtual-loopback device (e.g. BlackHole) and capture it as an input \
+                 with `--source input -d <device-id>` (see `speak devices`)"
+            ),
+        }
+    }
 }
 
 #[cfg(test)]
