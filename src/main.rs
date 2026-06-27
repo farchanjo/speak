@@ -23,10 +23,12 @@ use speak::adapters::openai::OpenAiAdapter;
 use speak::adapters::retry::Retry;
 use speak::application::SpeakFacade;
 use speak::config::Config;
+use speak::daemon::DaemonSpeechAdapter;
 use speak::{daemon, logging};
 
 use cli::AppFacade;
 use cli::args::{Cli, Command, GlobalArgs};
+use cli::speech::SpeechRole;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -63,24 +65,40 @@ impl<'a> Factory<'a> {
         Self { cfg }
     }
 
-    /// Assemble the application Facade over the three concrete adapter roles
-    /// (the `openai` speech adapter holding the one warm keep-alive `reqwest`
-    /// pool, the `coreaudio` I/O adapter, and the `libav` codec adapter).
+    /// Assemble the application Facade over the three concrete adapter roles: the
+    /// [`SpeechRole`] selector, the `coreaudio` I/O adapter, and the `libav`
+    /// codec adapter. Local audio always stays in the foreground CLI.
     ///
-    /// `native` routes `say` through the server's `/tts` endpoint; every other
-    /// command leaves it at the configured `[tts].native` default. The `openai`
-    /// adapter is wrapped in its port-preserving [`Retry`] decorator (T046),
-    /// resolved from `[retry]` (`self.cfg.retry.policy` + `jitter_seed`); because
-    /// it implements the SAME ports it drops straight into the Facade without
-    /// touching the use cases.
-    fn facade(&self, native: bool) -> Result<AppFacade> {
-        let speech = OpenAiAdapter::new(self.cfg)?.with_native(native || self.cfg.tts.native);
-        let speech = Retry::new(speech, self.cfg.retry.policy, self.cfg.retry.jitter_seed);
+    /// When a daemon is live the speech role forwards to it ([`DaemonSpeechAdapter`],
+    /// T053); otherwise it is the in-process `openai` adapter wrapped in its
+    /// port-preserving [`Retry`] decorator (T046), resolved from `[retry]`. Both
+    /// implement the SAME ports, so the use cases are oblivious. `native` routes
+    /// the in-process `say` through `/tts` (a forwarded `say` follows the daemon's
+    /// `[tts].native` default).
+    async fn facade(&self, native: bool) -> Result<AppFacade> {
+        let speech = self.speech_role(native).await?;
         let codec = LibavCodec::new(DecodeOptions {
             threads: self.cfg.ffmpeg.threads,
             log_level: self.cfg.ffmpeg.log_level.clone(),
         });
         Ok(SpeakFacade::new(speech, CoreAudio::new(), codec))
+    }
+
+    /// Pick the speech role: forward to a running daemon, else go in-process.
+    async fn speech_role(&self, native: bool) -> Result<SpeechRole> {
+        let socket = &self.cfg.daemon.socket;
+        if daemon::is_running(socket).await {
+            tracing::debug!(socket = %socket.display(), "speech role: daemon-forward");
+            return Ok(SpeechRole::Daemon(DaemonSpeechAdapter::new(
+                socket.clone(),
+                self.cfg.retry.policy,
+                self.cfg.retry.jitter_seed,
+            )));
+        }
+        tracing::debug!("speech role: in-process");
+        let openai = OpenAiAdapter::new(self.cfg)?.with_native(native || self.cfg.tts.native);
+        let retry = Retry::new(openai, self.cfg.retry.policy, self.cfg.retry.jitter_seed);
+        Ok(SpeechRole::Direct(Box::new(retry)))
     }
 }
 
@@ -92,23 +110,34 @@ async fn dispatch(cli: Cli, cfg: &Config) -> Result<()> {
     let out = presenter.as_mut();
     match cli.command {
         Command::Check => cli::check::check(cfg, out),
-        Command::Health => cli::check::health(&factory.facade(false)?, out).await,
+        Command::Health => cli::check::health(&factory.facade(false).await?, out).await,
         Command::Devices(_) => cli::devices::run(out),
         Command::Config { action } => cli::config::run(action, cfg, out),
         Command::Say(args) => {
-            cli::say::run(&factory.facade(args.native)?, cfg, &globals, args, out).await
+            cli::say::run(
+                &factory.facade(args.native).await?,
+                cfg,
+                &globals,
+                args,
+                out,
+            )
+            .await
         }
         Command::Transcribe(args) => {
-            cli::transcribe::run(&factory.facade(false)?, cfg, args, out).await
+            cli::transcribe::run(&factory.facade(false).await?, cfg, args, out).await
         }
         Command::Translate(args) => {
-            cli::translate::run(&factory.facade(false)?, cfg, args, out).await
+            cli::translate::run(&factory.facade(false).await?, cfg, args, out).await
         }
         Command::Realtime(args) => {
-            cli::realtime::run(&factory.facade(false)?, cfg, &globals, args, out).await
+            cli::realtime::run(&factory.facade(false).await?, cfg, &globals, args, out).await
         }
-        Command::Record(args) => cli::record::run(&factory.facade(false)?, cfg, args, out).await,
-        Command::Voices { action } => cli::voices::run(&factory.facade(false)?, action, out).await,
+        Command::Record(args) => {
+            cli::record::run(&factory.facade(false).await?, cfg, args, out).await
+        }
+        Command::Voices { action } => {
+            cli::voices::run(&factory.facade(false).await?, action, out).await
+        }
         Command::Daemon(args) => daemon::run(cfg, args).await,
         Command::Completions { .. } => Ok(()),
     }

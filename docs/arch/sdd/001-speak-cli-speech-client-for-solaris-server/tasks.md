@@ -388,9 +388,9 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   lands; subtitle (`srt`/`vtt`) file output returns with T041's subtitle path.)
 - [x] T052 `[adapter:daemon]` Unix-socket listener at `~/.speak/speak.sock`,
   length-prefixed framing, SSE pass-through, one-shot fallback (ADR-0005).
-- [ ] T053 `[adapter:daemon]` route framed requests through the shared
+- [x] T053 `[adapter:daemon]` route framed requests through the shared
   application Facade (same use cases as the CLI).
-  (In progress: the daemon SERVER now routes every framed request through a warm
+  (Done: the daemon SERVER routes every framed request through a warm
   `SpeakFacade<Retry<OpenAiAdapter>, HeadlessAudio, LibavCodec>` — `src/daemon.rs`
   was rebuilt around a high-level, port-level operation protocol (two
   length-prefixed frames: a JSON `Request`/`Reply` header + a binary audio
@@ -400,15 +400,24 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   `VoiceModeDto` wire projection so the domain stays serde-free (ADR-0003). The
   `DaemonSpeechAdapter` is the matching driven adapter: it implements all five
   speech ports by forwarding to the daemon, retrying transient socket failures
-  under the same `RetryPolicy` (the CommandTransport decorator, T046). The dead
-  `transport.rs` was removed and `client.rs` slimmed to the shared
-  `build_http_client`; local audio (`record`/`realtime` capture, `say` playback)
-  is never forwarded — it stays in the foreground CLI, which is why the daemon
-  uses `HeadlessAudio`. Server-side dispatch + the wire protocol are unit-tested
-  over the in-memory port doubles AND a real socket round-trip. The CLI Factory
-  selection that actually injects the `DaemonSpeechAdapter` when a daemon is up is
-  the remaining step. Caveat: per-call `say --native` is not carried on the wire,
-  so a forwarded `say` follows the daemon's `[tts].native` default.)
+  under the same `RetryPolicy` (the CommandTransport decorator, T046). The CLI
+  composition root closes the loop: `cli::speech::SpeechRole` is the Strategy
+  the Factory selects per dispatch — `Daemon(DaemonSpeechAdapter)` when a daemon
+  is live (`daemon::is_running`), else the in-process `Direct(Retry<OpenAiAdapter>)`
+  — so `AppFacade` is now `SpeakFacade<SpeechRole, CoreAudio, LibavCodec>` and
+  EVERY command behaves identically whether speech runs in-process or over the
+  warm daemon; only the network ports switch. Local audio (`record`/`realtime`
+  capture, `say` playback) is never forwarded — it stays in the foreground CLI,
+  which is why the daemon uses `HeadlessAudio`. The dead `transport.rs` was
+  removed and `client.rs` slimmed to the shared `build_http_client`. Server
+  dispatch + the wire protocol are unit-tested over the in-memory port doubles
+  AND a real socket round-trip. LIVE-VERIFIED against solaris: a backgrounded
+  daemon answered forwarded `health` (returned the real model list omnivoice/
+  tts-1/gpt-4o-mini-tts/whisper-1/large-v3/qwen2.5-14b-instruct, `requests`
+  counter incrementing) and a forwarded `say --no-play -o --json` (SpeechSpec DTO
+  over the socket -> 20565-byte valid MP3 written locally, `X-RTF`/`X-Audio-Seconds`
+  round-tripped). Caveat: per-call `say --native` is not carried on the wire, so
+  a forwarded `say` follows the daemon's `[tts].native` default.)
 - [x] T054 `[root]` `main.rs` composition root (**Factory**/DI): build the one
   warm async-openai client, construct the `RetryPolicy` from `[retry]` and wrap
   every network adapter with its port-preserving retry decorator (T046), wire

@@ -68,3 +68,26 @@ Chosen option: "Option A".
 - Bad: a second process to supervise; framing and SSE pass-through add protocol
   surface that must be versioned alongside the use-case contract; macOS/Linux
   only (no Windows named-pipe path today).
+
+### Realized protocol (T053)
+
+The framed contract was implemented as a **port-level** operation protocol rather
+than a raw HTTP proxy, which makes the "same use case as the CLI" guarantee
+structural: the daemon holds one warm `SpeakFacade` (the retry-wrapped `openai`
+adapter + a `HeadlessAudio` role + `libav`) and `dispatch` calls the very same
+Facade methods (`say` with `play = false`, `transcribe`, `translate`, the voice
+repository, `health`). Each message is two length-prefixed frames — a JSON
+`Request`/`Reply` header plus a binary audio payload — and the `SpeechSpec`
+crosses the boundary as a `SpeechSpecDto` so the domain stays serde-free
+(ADR-0003). The CLI side is the symmetric `DaemonSpeechAdapter`, selected by the
+composition root's `SpeechRole` Strategy (forward when a daemon is live, else
+in-process), so the use cases never know which they hold.
+
+Because the daemon is headless, **local audio is never forwarded**: `record` and
+`realtime` capture and `say` playback always run in the foreground CLI. Realtime
+therefore runs its loop in-process and forwards only its per-chunk network speech
+ports to the warm daemon — superseding the original frame-by-frame SSE
+pass-through (the realtime SSE stream itself, once the T036 eventsource adapter
+lands, is consumed in the foreground and reconnects under the shared retry policy,
+T046). Transient socket failures on the forward path retry under the same
+`RetryPolicy` as the network ports.
