@@ -232,13 +232,22 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   (Partial: the seeded backoff loop now lives in the reqwest `SpeechClient` and
   honors the full `retry_on` classification incl. 5xx/429 responses; extraction
   into a generic port-preserving decorator across all driven ports is pending.)
-- [ ] T048 `[adapter:presenter]` `Presenter` output adapters (ADR-0009): a
+- [x] T048 `[adapter:presenter]` `Presenter` output adapters (ADR-0009): a
   `console` renderer (coloured, aligned human text; honours `--quiet` suppression
   and `--color`/`NO_COLOR`) and a `json` renderer (machine-readable per FR-16),
   selected from the global flags and injected at the composition root (T054);
   plus the capture-buffer test double. Diagnostics ride `tracing` (stderr,
   verbosity-gated via `-v`/`--verbose` + `RUST_LOG`/`SPEAK_LOG`, ALWAYS to the
   rotating `~/.speak/logs` file). The `Presenter` port (T024) is in place.
+  (`src/adapters/presenter/`: `ConsolePresenter<W>` renders aligned key/value
+  `Report`s and column-aligned `Table`s, painting titles/headers bold under
+  `--color` and skipping the decorated views under `--quiet` while always
+  emitting raw `line` results so a transcript still pipes; `JsonPresenter<W>`
+  serialises each result as one JSON document (FR-16). `presenter::build` is the
+  composition-root Strategy selector (`json` vs console) and `color_enabled`
+  folds the `NO_COLOR`/non-TTY conventions into `[general].color`. Both are
+  generic over the writer so the same types double as the capture-buffer test.
+  Unit-tested incl. a `dyn Presenter` object-safety guard.)
 
 ## Application (use cases)
 

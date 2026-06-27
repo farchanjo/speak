@@ -9,3 +9,4 @@
 pub mod coreaudio;
 pub mod libav;
 pub mod openai;
+pub mod presenter;
