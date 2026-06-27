@@ -140,7 +140,13 @@ async fn dispatch(cli: Cli, cfg: &Config) -> Result<()> {
             .await
         }
         Command::Transcribe(args) => {
-            cli::transcribe::run(&factory.facade(false).await?, cfg, args, out).await
+            let facade = factory.facade(false).await?;
+            if args.stream {
+                let sse = SseRealtimeClient::new(cfg)?;
+                cli::transcribe::run_stream(&facade, cfg, args, &sse, out).await
+            } else {
+                cli::transcribe::run(&facade, cfg, args, out).await
+            }
         }
         Command::Translate(args) => {
             cli::translate::run(&factory.facade(false).await?, cfg, args, out).await

@@ -12,6 +12,7 @@ use clap_complete::Shell;
 
 use speak::adapters::config::GlobalFlags;
 use speak::adapters::daemon;
+use speak::domain::capture_source::CaptureDirection;
 
 /// Top-level CLI parser.
 #[derive(Parser, Debug)]
@@ -183,18 +184,69 @@ pub(crate) struct SayArgs {
     pub native: bool,
 }
 
+/// Capture source for the live/record pipelines (ADR-0015).
+#[derive(ValueEnum, Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub(crate) enum CaptureSourceArg {
+    /// An audio input device (microphone / line-in).
+    #[default]
+    Input,
+    /// The host's output (system / sound-card playback), via the native tap.
+    Output,
+}
+
+impl CaptureSourceArg {
+    /// Map the CLI choice onto the domain [`CaptureDirection`].
+    #[must_use]
+    pub(crate) fn direction(self) -> CaptureDirection {
+        match self {
+            Self::Input => CaptureDirection::Input,
+            Self::Output => CaptureDirection::Output,
+        }
+    }
+}
+
 /// `transcribe` arguments.
+///
+/// File mode (default) transcribes `FILE` once. `--stream` instead captures live
+/// audio from the selected source and prints the transcript incrementally until
+/// Ctrl-C (FR-1); `FILE` is then omitted.
 #[derive(Args, Debug)]
 pub(crate) struct TranscribeArgs {
-    /// Audio file to transcribe.
+    /// Audio file to transcribe (omit in `--stream` mode).
     #[arg(value_name = "FILE")]
-    pub file: PathBuf,
+    pub file: Option<PathBuf>,
     /// Source language hint.
     #[arg(short = 'l', long, value_name = "LANG")]
     pub language: Option<String>,
-    /// Transcript output format.
+    /// Transcript output format (file mode).
     #[arg(short = 'f', long, value_enum, default_value_t = TextFormat::Text)]
     pub format: TextFormat,
+    /// Stream a live transcript from the capture source until Ctrl-C (FR-1).
+    #[arg(short = 'S', long)]
+    pub stream: bool,
+    /// Capture source for `--stream`: input device or host output (FR-3).
+    #[arg(short = 's', long, value_enum, default_value_t = CaptureSourceArg::Input)]
+    pub source: CaptureSourceArg,
+    /// Capture device `AudioDeviceID` (0 = default for the source direction).
+    #[arg(short = 'd', long, default_value_t = 0, value_name = "ID")]
+    pub device: u32,
+    /// Capture only this 0-based channel within the source (ADR-0013).
+    #[arg(short = 'I', long = "input-channel", value_name = "N")]
+    pub input_channel: Option<u16>,
+    /// Chunk length in seconds for `--stream`.
+    #[arg(short = 'c', long, default_value_t = 5, value_name = "SECS")]
+    pub chunk: u64,
+    /// Disable the silence/VAD gate for `--stream` (send every chunk).
+    #[arg(short = 'x', long = "no-vad")]
+    pub no_vad: bool,
+    /// Silence-gate threshold in dBFS for `--stream` (overrides config).
+    #[arg(
+        short = 'F',
+        long = "vad-floor",
+        value_name = "DBFS",
+        allow_negative_numbers = true
+    )]
+    pub vad_floor: Option<f64>,
 }
 
 /// `translate` arguments.
@@ -511,5 +563,65 @@ mod tests {
         assert_eq!(make(true, false, false).mode(), RealtimeMode::Translate);
         assert_eq!(make(false, true, false).mode(), RealtimeMode::NoTranslate);
         assert_eq!(make(false, false, true).mode(), RealtimeMode::Echo);
+    }
+
+    #[test]
+    fn transcribe_file_mode_takes_a_positional_file() {
+        use clap::Parser;
+        let cli = Cli::try_parse_from(["speak", "transcribe", "clip.mp3"])
+            .expect("file-mode transcribe must parse");
+        match cli.command {
+            Command::Transcribe(a) => {
+                assert_eq!(a.file.as_deref(), Some(std::path::Path::new("clip.mp3")));
+                assert!(!a.stream);
+                assert_eq!(a.source, CaptureSourceArg::Input);
+            }
+            other => panic!("expected transcribe, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn transcribe_stream_parses_without_a_file() {
+        use clap::Parser;
+        let cli = Cli::try_parse_from(["speak", "transcribe", "--stream"])
+            .expect("stream-mode transcribe needs no FILE");
+        match cli.command {
+            Command::Transcribe(a) => {
+                assert!(a.stream);
+                assert!(a.file.is_none());
+                assert_eq!(a.source, CaptureSourceArg::Input);
+            }
+            other => panic!("expected transcribe, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn transcribe_stream_selects_the_output_source_with_device_and_channel() {
+        use clap::Parser;
+        let cli = Cli::try_parse_from([
+            "speak",
+            "transcribe",
+            "-S",
+            "--source",
+            "output",
+            "-d",
+            "42",
+            "-I",
+            "1",
+            "--vad-floor",
+            "-50",
+        ])
+        .expect("output-source stream transcribe must parse");
+        match cli.command {
+            Command::Transcribe(a) => {
+                assert!(a.stream);
+                assert_eq!(a.source, CaptureSourceArg::Output);
+                assert_eq!(a.source.direction(), CaptureDirection::Output);
+                assert_eq!(a.device, 42);
+                assert_eq!(a.input_channel, Some(1));
+                assert_eq!(a.vad_floor, Some(-50.0));
+            }
+            other => panic!("expected transcribe, got {other:?}"),
+        }
     }
 }
