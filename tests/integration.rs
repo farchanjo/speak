@@ -177,6 +177,49 @@ fn say_then_transcribe_round_trips_text() {
 }
 
 #[test]
+fn translate_emits_srt_subtitles_from_transcription_segments() {
+    // ADR-0010: `translate <file> --format srt` builds timestamped subtitle cues
+    // from the server's transcription segments (the `/v1/audio/transcriptions`
+    // endpoint emits SRT). Mint a clip, then assert a well-formed SRT cue.
+    with_server("translate_srt", |host| {
+        let path = std::env::temp_dir().join("speak-it-subs.wav");
+        let _ = std::fs::remove_file(&path);
+        let say = run(
+            host,
+            &[
+                "say",
+                "Subtitles from the integration suite.",
+                "--format",
+                "wav",
+                "-o",
+                path.to_str().unwrap(),
+                "--no-play",
+                "--lang",
+                "en",
+            ],
+        );
+        assert!(
+            say.status.success(),
+            "{}",
+            String::from_utf8_lossy(&say.stderr)
+        );
+        let srt = run(
+            host,
+            &["translate", path.to_str().unwrap(), "--format", "srt"],
+        );
+        assert!(
+            srt.status.success(),
+            "{}",
+            String::from_utf8_lossy(&srt.stderr)
+        );
+        let body = String::from_utf8_lossy(&srt.stdout);
+        // A SubRip cue carries the `-->` timecode arrow with comma millis.
+        assert!(body.contains("-->"), "expected an SRT timecode cue: {body}");
+        assert!(body.contains(',') && body.contains(':'), "{body}");
+    });
+}
+
+#[test]
 fn voice_design_say_is_accepted() {
     with_server("voice_design", |host| {
         let path = std::env::temp_dir().join("speak-it-design.mp3");
