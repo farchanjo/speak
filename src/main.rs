@@ -25,7 +25,7 @@ use speak::config::Config;
 use speak::{daemon, logging};
 
 use cli::AppFacade;
-use cli::args::{Cli, Command};
+use cli::args::{Cli, Command, GlobalArgs};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -80,19 +80,37 @@ impl<'a> Factory<'a> {
 async fn dispatch(cli: Cli, cfg: &Config) -> Result<()> {
     let factory = Factory::new(cfg);
     let globals = cli.globals;
+    let mut presenter = build_presenter(&globals, cfg, &cli.command);
+    let out = presenter.as_mut();
     match cli.command {
-        Command::Check => cli::check::check(cfg),
-        Command::Health => cli::check::health(cfg).await,
+        Command::Check => cli::check::check(cfg, out),
+        Command::Health => cli::check::health(cfg, out).await,
         Command::Devices(args) => cli::devices::run(&args),
-        Command::Config { action } => cli::config::run(action, cfg),
+        Command::Config { action } => cli::config::run(action, cfg, out),
         Command::Say(args) => {
             cli::say::run(&factory.facade(args.native)?, cfg, &globals, args).await
         }
         Command::Transcribe(args) => cli::transcribe::run(&factory.facade(false)?, cfg, args).await,
         Command::Translate(args) => cli::translate::run(&factory.facade(false)?, cfg, args).await,
         Command::Realtime(args) => cli::realtime::run(cfg, &globals, args).await,
-        Command::Voices { action } => cli::voices::run(&factory.facade(false)?, action).await,
+        Command::Voices { action } => cli::voices::run(&factory.facade(false)?, action, out).await,
         Command::Daemon(args) => daemon::run(cfg, args).await,
         Command::Completions { .. } => Ok(()),
     }
+}
+
+/// Select the output Presenter Strategy from the global flags + config (ADR-0009).
+///
+/// `--json` (or the per-command `devices --json`, or `[general].json`) picks the
+/// machine-readable renderer; otherwise the console renderer honours `--quiet`
+/// and the resolved `--color`/`NO_COLOR` behaviour.
+fn build_presenter(
+    globals: &GlobalArgs,
+    cfg: &Config,
+    command: &Command,
+) -> Box<dyn speak::ports::presenter::Presenter> {
+    let want_json =
+        globals.json || cfg.general.json || matches!(command, Command::Devices(args) if args.json);
+    let color = speak::adapters::presenter::color_enabled(cfg.general.color);
+    speak::adapters::presenter::build(want_json, cfg.general.quiet, color)
 }

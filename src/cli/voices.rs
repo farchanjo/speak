@@ -6,14 +6,19 @@
 use anyhow::{Context, Result};
 
 use speak::domain::voice::Voice;
+use speak::ports::presenter::{Presenter, Table};
 
 use super::AppFacade;
 use super::args::VoicesAction;
 
-/// Run the `voices` subcommand.
-pub async fn run(facade: &AppFacade, action: VoicesAction) -> Result<()> {
+/// Run the `voices` subcommand, emitting its RESULT through the Presenter.
+pub async fn run(
+    facade: &AppFacade,
+    action: VoicesAction,
+    presenter: &mut dyn Presenter,
+) -> Result<()> {
     match action {
-        VoicesAction::List => print_voices(&facade.list_voices().await?),
+        VoicesAction::List => present_voices(&facade.list_voices().await?, presenter),
         VoicesAction::Add(args) => {
             let bytes = tokio::fs::read(&args.audio)
                 .await
@@ -21,27 +26,21 @@ pub async fn run(facade: &AppFacade, action: VoicesAction) -> Result<()> {
             facade
                 .add_voice(&args.name, &bytes, args.ref_text.as_deref())
                 .await?;
-            println!("added voice {}", args.name);
+            presenter.line(&format!("added voice {}", args.name))
         }
         VoicesAction::Rm { name } => {
             facade.remove_voice(&name).await?;
-            println!("removed voice {name}");
+            presenter.line(&format!("removed voice {name}"))
         }
     }
-    Ok(())
 }
 
-/// Print the saved voices, flagging those with a stored reference transcript.
-fn print_voices(voices: &[Voice]) {
-    if voices.is_empty() {
-        println!("(no saved voices)");
-    }
+/// Emit the saved voices as a table, flagging stored reference transcripts.
+fn present_voices(voices: &[Voice], presenter: &mut dyn Presenter) -> Result<()> {
+    let mut table = Table::new(["voice", "ref_text"]);
     for v in voices {
-        let tag = if v.has_ref_text() {
-            "  (has ref_text)"
-        } else {
-            ""
-        };
-        println!("{}{tag}", v.name());
+        let flag = if v.has_ref_text() { "yes" } else { "no" };
+        table = table.row([v.name().to_owned(), flag.to_owned()]);
     }
+    presenter.table(&table)
 }

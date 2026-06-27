@@ -152,7 +152,8 @@ fn config_show_reports_value_with_env_origin() {
         .find(|l| l.contains("retry.max_retries"))
         .unwrap_or("");
     assert!(line.contains('7'), "{line}");
-    assert!(line.contains("(env)"), "{line}");
+    // The Presenter `config show` table carries the origin in its own column.
+    assert!(line.contains("env"), "{line}");
 }
 
 #[test]
@@ -169,7 +170,7 @@ fn config_show_reports_flag_origin_for_global_flag_env() {
         .find(|l| l.contains("server.host"))
         .unwrap_or("");
     assert!(line.contains("http://probe-host:9100"), "{line}");
-    assert!(line.contains("(flag)"), "{line}");
+    assert!(line.contains("flag"), "{line}");
 }
 
 #[test]
@@ -182,7 +183,7 @@ fn config_show_reports_default_origin_without_overrides() {
         .find(|l| l.contains("server.host"))
         .unwrap_or("");
     assert!(host_line.contains("http://solaris:8800"), "{host_line}");
-    assert!(host_line.contains("(default)"), "{host_line}");
+    assert!(host_line.contains("default"), "{host_line}");
 }
 
 #[test]
