@@ -12,8 +12,17 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{Shell, generate};
 
+use speak::adapters::openai::OpenAiAdapter;
 use speak::client::SpeakRequest;
 use speak::config::{Config, GlobalFlags};
+use speak::domain::language::Language;
+use speak::domain::speech_spec::SpeechSpec;
+use speak::domain::voice::{StandardVoice, VoiceMode};
+use speak::domain::voice_design::VoiceDesign;
+use speak::ports::synthesizer::{SynthesizedAudio, Synthesizer};
+use speak::ports::transcriber::{TranscribeRequest, Transcriber};
+use speak::ports::translator::Translator;
+use speak::ports::voice::VoiceRepository;
 use speak::transport::Transport;
 use speak::{accel, audio, client, codec, config, daemon, domain, logging, paths};
 
@@ -388,12 +397,13 @@ async fn cmd_say(cfg: &Config, globals: &GlobalArgs, args: SayArgs) -> Result<()
         }
         return Ok(());
     }
-    let transport = Transport::connect(cfg).await?;
     let text = resolve_text(&args.text)?;
     let format = args
         .format
         .map_or_else(|| cfg.tts.format.clone(), |f| f.as_str().to_owned());
-    let reply = synthesize(&transport, cfg, &args, &text, &format).await?;
+    let spec = build_spec(cfg, &args, &text, &format)?;
+    let adapter = OpenAiAdapter::new(cfg)?.with_native(args.native || cfg.tts.native);
+    let reply = adapter.synthesize(&spec).await?;
     if let Some(path) = &args.out {
         let path = resolve_out_path(cfg, path);
         tokio::fs::write(&path, &reply.bytes).await?;
@@ -420,43 +430,26 @@ fn resolve_out_path(cfg: &Config, path: &Path) -> PathBuf {
     }
 }
 
-async fn synthesize(
-    transport: &Transport,
-    cfg: &Config,
-    args: &SayArgs,
-    text: &str,
-    format: &str,
-) -> Result<client::AudioReply> {
-    if args.native {
-        let body =
-            serde_json::json!({ "text": text, "language": cfg.tts.language, "speed": args.speed });
-        return transport
-            .proxy("POST", "/tts", Some(body))
-            .await?
-            .into_audio();
-    }
-    let instruct = validate_instruct(args.instruct.as_deref().or(cfg.tts.instruct.as_deref()))?;
-    let voice = if instruct.is_some() {
-        None
-    } else {
-        Some(cfg.tts.voice.as_str())
+/// Assemble the validated [`SpeechSpec`] aggregate from the `say` args + config.
+///
+/// `--instruct` (or `[tts].instruct`) selects the voice-design Strategy; absent
+/// it, the configured `[tts].voice` is the standard-voice Strategy. The
+/// `--ref-text`/`--duration` clone knobs are wired by the per-call `--voice`
+/// clone path (T051) and stay on the flat realtime path until then.
+fn build_spec(cfg: &Config, args: &SayArgs, text: &str, format: &str) -> Result<SpeechSpec> {
+    let instruct = args.instruct.as_deref().or(cfg.tts.instruct.as_deref());
+    let voice = match instruct {
+        Some(tags) => VoiceMode::Design(VoiceDesign::parse(tags)?),
+        None => VoiceMode::Standard(StandardVoice::new(&cfg.tts.voice)?),
     };
-    let req = SpeakRequest {
-        input: text,
-        model: &cfg.tts.model,
-        voice,
-        response_format: format,
-        speed: args.speed,
-        language: &cfg.tts.language,
-        instruct: instruct.as_deref(),
-        ref_text: args.ref_text.as_deref(),
-        duration: args.duration,
-        extra: gen_extra(cfg, &args.set)?,
-    };
-    transport
-        .proxy("POST", "/v1/audio/speech", Some(req.to_body()))
-        .await?
-        .into_audio()
+    let spec = SpeechSpec::builder(text)
+        .voice(voice)
+        .language(Language::parse(&cfg.tts.language)?)
+        .format(speak::domain::audio_format::AudioFormat::parse(format)?)
+        .speed(args.speed)
+        .gen_params(gen_extra(cfg, &args.set)?)
+        .build()?;
+    Ok(spec)
 }
 
 /// Validate an optional voice-design instruct string against the canonical tags.
@@ -466,7 +459,7 @@ fn validate_instruct(instruct: Option<&str>) -> Result<Option<String>> {
         .transpose()
 }
 
-fn report_synth(reply: &client::AudioReply) {
+fn report_synth(reply: &SynthesizedAudio) {
     if let (Some(secs), Some(rtf)) = (&reply.audio_seconds, &reply.rtf) {
         eprintln!("server synthesized {secs}s of audio (RTF {rtf})");
     }
@@ -516,65 +509,40 @@ fn gen_to_map(g: &config::Gen) -> serde_json::Map<String, serde_json::Value> {
 }
 
 async fn cmd_voices(cfg: &Config, action: VoicesAction) -> Result<()> {
-    let transport = Transport::connect(cfg).await?;
+    let adapter = OpenAiAdapter::new(cfg)?;
     match action {
-        VoicesAction::List => list_voices(&transport).await?,
+        VoicesAction::List => list_voices(&adapter).await?,
         VoicesAction::Add(args) => {
             let bytes = tokio::fs::read(&args.audio)
                 .await
                 .with_context(|| format!("reading {}", args.audio.display()))?;
-            let mut fields = vec![("name".to_owned(), args.name.clone())];
-            if let Some(text) = &args.ref_text {
-                fields.push(("ref_text".to_owned(), text.clone()));
-            }
-            let file = Some((bytes, file_name(&args.audio)));
-            let msg = transport
-                .proxy_multipart("/voices", &fields, file, "audio")
-                .await?
-                .into_string()?;
-            println!("{}", non_empty(msg, &format!("added voice {}", args.name)));
+            adapter
+                .add(&args.name, &bytes, args.ref_text.as_deref())
+                .await?;
+            println!("added voice {}", args.name);
         }
         VoicesAction::Rm { name } => {
-            let msg = transport
-                .proxy("DELETE", &format!("/voices/{name}"), None)
-                .await?
-                .into_string()?;
-            println!("{}", non_empty(msg, &format!("removed voice {name}")));
+            adapter.remove(&name).await?;
+            println!("removed voice {name}");
         }
     }
     Ok(())
 }
 
-async fn list_voices(transport: &Transport) -> Result<()> {
-    let value = transport.proxy("GET", "/voices", None).await?.into_json()?;
-    let voices: Vec<client::VoiceInfo> = serde_json::from_value(
-        value
-            .get("voices")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null),
-    )
-    .context("parsing /voices response")?;
+async fn list_voices(adapter: &OpenAiAdapter) -> Result<()> {
+    let voices = adapter.list().await?;
     if voices.is_empty() {
         println!("(no saved voices)");
     }
     for v in voices {
-        let tag = if v.has_ref_text {
+        let tag = if v.has_ref_text() {
             "  (has ref_text)"
         } else {
             ""
         };
-        println!("{}{tag}", v.name);
+        println!("{}{tag}", v.name());
     }
     Ok(())
-}
-
-fn non_empty(text: String, fallback: &str) -> String {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        fallback.to_owned()
-    } else {
-        trimmed.to_owned()
-    }
 }
 
 async fn play_bytes(bytes: Vec<u8>, content_type: String, cfg: &Config, quiet: bool) -> Result<()> {
@@ -601,35 +569,36 @@ async fn play_bytes(bytes: Vec<u8>, content_type: String, cfg: &Config, quiet: b
 }
 
 async fn cmd_transcribe(cfg: &Config, args: TranscribeArgs) -> Result<()> {
-    let transport = Transport::connect(cfg).await?;
     let bytes = tokio::fs::read(&args.file)
         .await
         .with_context(|| format!("reading {}", args.file.display()))?;
-    let fields = asr_fields(
-        &cfg.asr.model,
-        args.language.as_deref().or(cfg.asr.language.as_deref()),
-        args.format.as_str(),
-    );
-    let file = Some((bytes, file_name(&args.file)));
-    let text = transport
-        .proxy_multipart("/v1/audio/transcriptions", &fields, file, "file")
-        .await?
-        .into_text(args.format.as_str())?;
+    let adapter = OpenAiAdapter::new(cfg)?;
+    let lang = args.language.as_deref().or(cfg.asr.language.as_deref());
+    let language = lang.map(Language::parse).transpose()?;
+    let filename = file_name(&args.file);
+    let req = TranscribeRequest {
+        audio: &bytes,
+        filename: &filename,
+        language: language.as_ref(),
+        format: args.format.as_str(),
+    };
+    let text = adapter.transcribe(&req).await?;
     println!("{text}");
     Ok(())
 }
 
 async fn cmd_translate(cfg: &Config, args: TranslateArgs) -> Result<()> {
-    let transport = Transport::connect(cfg).await?;
     let bytes = tokio::fs::read(&args.file)
         .await
         .with_context(|| format!("reading {}", args.file.display()))?;
-    let fields = asr_fields(&cfg.asr.model, None, args.format.as_str());
-    let file = Some((bytes, file_name(&args.file)));
-    let text = transport
-        .proxy_multipart("/v1/audio/translations", &fields, file, "file")
-        .await?
-        .into_text(args.format.as_str())?;
+    let adapter = OpenAiAdapter::new(cfg)?;
+    let filename = file_name(&args.file);
+    // The Translator port is the English/Whisper Strategy; the `translate` file
+    // command targets English. Subtitle (`srt`/`vtt`) output is restored when the
+    // file-translate use case (T041) lands; the port yields the transcript text.
+    let _ = args.format;
+    let target = Language::parse("en")?;
+    let text = adapter.translate(&bytes, &filename, &target).await?;
     println!("{text}");
     Ok(())
 }
@@ -911,12 +880,6 @@ mod tests {
         assert_eq!(file_name(Path::new("/a/b/clip.wav")), "clip.wav");
         assert_eq!(file_name(Path::new("plain.mp3")), "plain.mp3");
         assert_eq!(file_name(Path::new("/")), "audio");
-    }
-
-    #[test]
-    fn non_empty_falls_back_on_blank() {
-        assert_eq!(non_empty("  done  ".to_owned(), "fallback"), "done");
-        assert_eq!(non_empty("   ".to_owned(), "fallback"), "fallback");
     }
 
     #[test]

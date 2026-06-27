@@ -220,6 +220,17 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   --voice` (per-call clone, distinct from the TTS `--voice`/`alloy`), `realtime
   --instruct/--voice` (output voice), `realtime --translate/--no-translate/
   --echo` modes; `--list-designs`; the global `--json` flag (FR-16).
+  (Partial: `say`/`transcribe`/`translate`/`voices` now build the domain
+  `SpeechSpec`/`TranscribeRequest`/`Language` and drive the `openai` adapter
+  ports (`Synthesizer`/`Transcriber`/`Translator`/`VoiceRepository`) directly
+  in-process, replacing the raw `Transport` proxy for these four commands and
+  verified live against solaris (voice-design say + voices list). The
+  application-layer use cases (T040-T042), the daemon-forward / Facade
+  unification (T045/T053/T054), the per-call `--voice` clone, `--output-device`,
+  realtime-mode flags, and the global `--json` remain pending; `realtime`,
+  `health`, and the `daemon` server still use the flat `Transport`/`SpeechClient`
+  for now. The `translate` command is English-only here (the `Translator` port is
+  text-valued); subtitle output returns with the file-translate use case T041.)
 - [x] T052 `[adapter:daemon]` Unix-socket listener at `~/.speak/speak.sock`,
   length-prefixed framing, SSE pass-through, one-shot fallback (ADR-0005).
 - [ ] T053 `[adapter:daemon]` route framed requests through the shared
