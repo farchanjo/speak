@@ -11,11 +11,13 @@
 
 use anyhow::Result;
 
-use speak::application::{RealtimeOptions, RealtimeStep};
+use speak::adapters::sse::{RealtimeRequest, SseRealtimeClient};
+use speak::application::{RealtimeEvent, RealtimeOptions, RealtimeStep};
 use speak::config::Config;
 use speak::domain::audio_format::AudioFormat;
 use speak::domain::language::Language;
 use speak::domain::realtime::RealtimeMode;
+use speak::domain::voice::VoiceMode;
 use speak::ports::audio::AudioDeviceId;
 use speak::ports::presenter::Presenter;
 
@@ -23,35 +25,145 @@ use super::AppFacade;
 use super::args::{GlobalArgs, RealtimeArgs};
 use super::say::gen_to_map;
 
+/// Advertised file name for a captured realtime chunk.
+const CHUNK_NAME: &str = "chunk.wav";
+
 /// Run the `realtime` subcommand loop until Ctrl-C.
+///
+/// A [`ServerProbe`](speak::ports::probe::ServerProbe) capability check selects
+/// the SSE path (`POST /v1/realtime/translate`) when the endpoint exists, else the
+/// chunked ASR -> MT -> TTS fallback (ADR-0004). One prebuilt binary decides at
+/// run time; both paths share the resolved [`RealtimeOptions`].
 pub async fn run(
     facade: &AppFacade,
     cfg: &Config,
     globals: &GlobalArgs,
     args: RealtimeArgs,
+    sse: &SseRealtimeClient,
     presenter: &mut dyn Presenter,
 ) -> Result<()> {
     let opts = build_options(cfg, globals, &args)?;
+    let realtime = facade.supports_realtime().await.unwrap_or(false);
     tracing::info!(
         mode = opts.mode.as_str(),
         chunk = opts.chunk_secs,
         device = args.device,
         from = opts.from.as_ref().map_or("auto", Language::as_str),
         to = opts.to.as_str(),
+        path = if realtime { "sse" } else { "chunked" },
         "realtime loop starting; Ctrl-C to stop"
     );
+    if realtime {
+        run_sse(facade, cfg, sse, &opts, presenter).await
+    } else {
+        run_chunked(facade, &opts, presenter).await
+    }
+}
+
+/// The chunked fallback: capture -> ASR -> (MT) -> re-voice locally per chunk.
+async fn run_chunked(
+    facade: &AppFacade,
+    opts: &RealtimeOptions,
+    presenter: &mut dyn Presenter,
+) -> Result<()> {
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 tracing::info!("realtime loop stopping");
                 return Ok(());
             }
-            res = facade.realtime_step(&opts) => match res {
+            res = facade.realtime_step(opts) => match res {
                 Ok(Some(step)) => emit_step(&step, presenter)?,
                 Ok(None) => {}
                 Err(e) => tracing::warn!("realtime chunk failed: {e:#}"),
             },
         }
+    }
+}
+
+/// The SSE path: POST each captured chunk and play back the streamed frames.
+async fn run_sse(
+    facade: &AppFacade,
+    cfg: &Config,
+    sse: &SseRealtimeClient,
+    opts: &RealtimeOptions,
+    presenter: &mut dyn Presenter,
+) -> Result<()> {
+    loop {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("realtime loop stopping");
+                return Ok(());
+            }
+            res = drive_chunk(facade, cfg, sse, opts, presenter) => {
+                if let Err(e) = res {
+                    tracing::warn!("realtime SSE chunk failed: {e:#}");
+                }
+            }
+        }
+    }
+}
+
+/// Capture one chunk, stream it through the SSE endpoint, and surface the frames.
+async fn drive_chunk(
+    facade: &AppFacade,
+    cfg: &Config,
+    sse: &SseRealtimeClient,
+    opts: &RealtimeOptions,
+    presenter: &mut dyn Presenter,
+) -> Result<()> {
+    let Some(wav) = facade.realtime_capture(opts).await? else {
+        return Ok(());
+    };
+    let request = realtime_request(wav, opts);
+    let mut stream = sse.stream(request, cfg.retry.policy, cfg.retry.jitter_seed);
+    let mut emit_err = None;
+    facade
+        .realtime_drive(&mut stream, opts, |event| {
+            on_event(event, presenter, &mut emit_err);
+        })
+        .await?;
+    emit_err.map_or(Ok(()), Err)
+}
+
+/// Surface one streamed event: print text, log a server error, ignore playback.
+fn on_event(
+    event: &RealtimeEvent,
+    presenter: &mut dyn Presenter,
+    emit_err: &mut Option<anyhow::Error>,
+) {
+    match event {
+        RealtimeEvent::Text { text, .. } => {
+            if let Err(e) = presenter.line(text) {
+                emit_err.get_or_insert(e);
+            }
+        }
+        RealtimeEvent::Failed { message } => tracing::warn!("realtime server error: {message}"),
+        RealtimeEvent::Played | RealtimeEvent::Done => {}
+    }
+}
+
+/// Project the resolved options + captured chunk onto the SSE request fields.
+fn realtime_request(wav: Vec<u8>, opts: &RealtimeOptions) -> RealtimeRequest {
+    let (voice, instruct) = voice_fields(&opts.voice);
+    RealtimeRequest {
+        audio: wav,
+        filename: CHUNK_NAME.to_owned(),
+        to: Some(opts.to.as_str().to_owned()),
+        translate: matches!(opts.mode, RealtimeMode::Translate),
+        voice,
+        instruct,
+        language: opts.from.as_ref().map(|l| l.as_str().to_owned()),
+        format: opts.format.as_str().to_owned(),
+    }
+}
+
+/// Map the output [`VoiceMode`] Strategy onto the `voice`/`instruct` form fields.
+fn voice_fields(mode: &VoiceMode) -> (Option<String>, Option<String>) {
+    match mode {
+        VoiceMode::Design(design) => (None, Some(design.instruct())),
+        VoiceMode::Clone(clone) => (Some(clone.name().to_owned()), None),
+        VoiceMode::Standard(voice) => (Some(voice.name().to_owned()), None),
     }
 }
 

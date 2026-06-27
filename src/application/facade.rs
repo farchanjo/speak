@@ -26,7 +26,7 @@ use crate::domain::voice::Voice;
 use crate::ports::audio::{AudioSink, AudioSource};
 use crate::ports::codec::{AudioDecoder, AudioEncoder};
 use crate::ports::probe::ServerProbe;
-use crate::ports::realtime::RealtimeFrame;
+use crate::ports::realtime::{RealtimeFrame, RealtimeStream};
 use crate::ports::synthesizer::Synthesizer;
 use crate::ports::transcriber::{TranscribeRequest, Transcriber};
 use crate::ports::translator::Translator;
@@ -139,6 +139,41 @@ impl<Speech, Audio, Codec> SpeakFacade<Speech, Audio, Codec> {
         Codec: AudioDecoder + AudioEncoder,
     {
         self.realtime().pump_frame(frame, opts).await
+    }
+
+    /// Capture one realtime chunk encoded as WAV for the SSE endpoint (FR-8, T036).
+    pub async fn realtime_capture(&self, opts: &RealtimeOptions) -> Result<Option<Vec<u8>>>
+    where
+        Speech: Synthesizer + Transcriber + Translator,
+        Audio: AudioSource + AudioSink,
+        Codec: AudioDecoder + AudioEncoder,
+    {
+        self.realtime().capture_chunk(opts).await
+    }
+
+    /// Drive a realtime SSE stream to completion, invoking `on_event` per frame.
+    pub async fn realtime_drive<St, F>(
+        &self,
+        stream: &mut St,
+        opts: &RealtimeOptions,
+        on_event: F,
+    ) -> Result<()>
+    where
+        St: RealtimeStream,
+        F: FnMut(&RealtimeEvent),
+        Speech: Synthesizer + Transcriber + Translator,
+        Audio: AudioSource + AudioSink,
+        Codec: AudioDecoder + AudioEncoder,
+    {
+        self.realtime().drive_stream(stream, opts, on_event).await
+    }
+
+    /// Whether the server advertises the realtime SSE endpoint (FR-14, ADR-0004).
+    pub async fn supports_realtime(&self) -> Result<bool>
+    where
+        Speech: ServerProbe,
+    {
+        self.speech.supports_realtime().await
     }
 
     /// Probe server health, models, and realtime capability (FR-14).

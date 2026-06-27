@@ -141,17 +141,37 @@ where
 
     /// Capture and process one chunk; `Ok(None)` = silence or empty result.
     pub async fn step(&self, opts: &RealtimeOptions) -> Result<Option<RealtimeStep>> {
+        let Some((captured, wav)) = self.capture_gated(opts).await? else {
+            return Ok(None);
+        };
+        match opts.mode {
+            RealtimeMode::Translate => self.translate_step(&wav, opts).await,
+            RealtimeMode::NoTranslate => self.revoice_step(&wav, opts).await,
+            RealtimeMode::Echo => self.echo_step(&captured, &wav, opts).await,
+        }
+    }
+
+    /// Capture one chunk and encode it to WAV for the SSE endpoint (T036).
+    ///
+    /// `Ok(None)` when the silence gate suppresses the chunk. The server runs the
+    /// ASR -> MT -> TTS pipeline and streams the result back as frames, so this
+    /// path only needs the encoded capture, not local re-voicing.
+    pub async fn capture_chunk(&self, opts: &RealtimeOptions) -> Result<Option<Vec<u8>>> {
+        Ok(self.capture_gated(opts).await?.map(|(_, wav)| wav))
+    }
+
+    /// Capture one chunk, resample to the ASR rate, gate silence, and mux WAV.
+    ///
+    /// Returns the raw capture (for echo playback) alongside the encoded WAV, or
+    /// `Ok(None)` when the VAD gate treats the chunk as silence.
+    async fn capture_gated(&self, opts: &RealtimeOptions) -> Result<Option<(PcmBuffer, Vec<u8>)>> {
         let captured = self.audio.capture(opts.device, opts.chunk_secs).await?;
         let mono = self.codec.resample(&captured, ASR_RATE, ASR_CHANNELS)?;
         if opts.vad && rms(&mono) < opts.silence_floor {
             return Ok(None);
         }
         let wav = self.codec.encode(&mono, RecordFormat::Wav)?;
-        match opts.mode {
-            RealtimeMode::Translate => self.translate_step(&wav, opts).await,
-            RealtimeMode::NoTranslate => self.revoice_step(&wav, opts).await,
-            RealtimeMode::Echo => self.echo_step(&captured, &wav, opts).await,
-        }
+        Ok(Some((captured, wav)))
     }
 
     /// Decode and play one SSE realtime frame, or surface its text/terminal state.

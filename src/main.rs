@@ -17,10 +17,12 @@ mod cli;
 use anyhow::Result;
 use clap::Parser;
 
+use speak::adapters::chatmt::ChatMtTranslator;
 use speak::adapters::coreaudio::CoreAudio;
 use speak::adapters::libav::{DecodeOptions, LibavCodec};
 use speak::adapters::openai::OpenAiAdapter;
 use speak::adapters::retry::Retry;
+use speak::adapters::sse::SseRealtimeClient;
 use speak::application::SpeakFacade;
 use speak::config::Config;
 use speak::daemon::DaemonSpeechAdapter;
@@ -28,7 +30,7 @@ use speak::{daemon, logging};
 
 use cli::AppFacade;
 use cli::args::{Cli, Command, GlobalArgs};
-use cli::speech::SpeechRole;
+use cli::speech::{DirectSpeech, SpeechRole};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -97,8 +99,21 @@ impl<'a> Factory<'a> {
         }
         tracing::debug!("speech role: in-process");
         let openai = OpenAiAdapter::new(self.cfg)?.with_native(native || self.cfg.tts.native);
-        let retry = Retry::new(openai, self.cfg.retry.policy, self.cfg.retry.jitter_seed);
-        Ok(SpeechRole::Direct(Box::new(retry)))
+        let speech = Retry::new(openai, self.cfg.retry.policy, self.cfg.retry.jitter_seed);
+        let chatmt = self.chat_mt()?;
+        Ok(SpeechRole::Direct(Box::new(DirectSpeech {
+            speech,
+            chatmt,
+        })))
+    }
+
+    /// Build the chat-MT translate Strategy when `[http].translate_url` is set
+    /// (T039); its own `openai` adapter transcribes the chunk before chat-MT.
+    fn chat_mt(&self) -> Result<Option<ChatMtTranslator<OpenAiAdapter>>> {
+        if self.cfg.http.translate_url.is_none() {
+            return Ok(None);
+        }
+        ChatMtTranslator::new(OpenAiAdapter::new(self.cfg)?, self.cfg)
     }
 }
 
@@ -130,7 +145,16 @@ async fn dispatch(cli: Cli, cfg: &Config) -> Result<()> {
             cli::translate::run(&factory.facade(false).await?, cfg, args, out).await
         }
         Command::Realtime(args) => {
-            cli::realtime::run(&factory.facade(false).await?, cfg, &globals, args, out).await
+            let sse = SseRealtimeClient::new(cfg)?;
+            cli::realtime::run(
+                &factory.facade(false).await?,
+                cfg,
+                &globals,
+                args,
+                &sse,
+                out,
+            )
+            .await
         }
         Command::Record(args) => {
             cli::record::run(&factory.facade(false).await?, cfg, args, out).await
