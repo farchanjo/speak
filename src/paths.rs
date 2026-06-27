@@ -41,6 +41,16 @@ pub fn default_socket() -> PathBuf {
     env_path("SPEAK_DAEMON_SOCKET").unwrap_or_else(|| home().join("speak.sock"))
 }
 
+/// Default daemon pidfile (`SPEAK_DAEMON_PIDFILE` or `~/.speak/speak.pid`).
+///
+/// The single-instance lock for `speak daemon` (ADR-0010): the running daemon
+/// writes its PID here atomically and removes it on graceful shutdown, so a fresh
+/// `speak daemon` can detect, replace, or clean up a previous instance.
+#[must_use]
+pub fn default_pidfile() -> PathBuf {
+    env_path("SPEAK_DAEMON_PIDFILE").unwrap_or_else(|| home().join("speak.pid"))
+}
+
 fn env_path(key: &str) -> Option<PathBuf> {
     std::env::var_os(key)
         .filter(|s| !s.is_empty())
@@ -128,6 +138,24 @@ mod tests {
             &["SPEAK_DAEMON_SOCKET"],
             || {
                 assert_eq!(default_socket(), PathBuf::from("/tmp/h/speak.sock"));
+            },
+        );
+    }
+
+    #[test]
+    fn default_pidfile_honours_override() {
+        scoped(&[("SPEAK_DAEMON_PIDFILE", "/run/speak.pid")], &[], || {
+            assert_eq!(default_pidfile(), PathBuf::from("/run/speak.pid"));
+        });
+    }
+
+    #[test]
+    fn default_pidfile_defaults_under_home() {
+        scoped(
+            &[("SPEAK_HOME", "/tmp/h")],
+            &["SPEAK_DAEMON_PIDFILE"],
+            || {
+                assert_eq!(default_pidfile(), PathBuf::from("/tmp/h/speak.pid"));
             },
         );
     }

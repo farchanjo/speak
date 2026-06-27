@@ -78,9 +78,14 @@ chunk_secs = 5.0
 
 [daemon]
 # socket = "~/.speak/speak.sock"
+# pidfile = "~/.speak/speak.pid"  # SPEAK_DAEMON_PIDFILE; single-instance lock
 idle_timeout = 0              # auto-stop after N idle seconds (0 = never)
 autostart = false             # spawn a background daemon (this binary's own
                               # `daemon` subcommand) for CLI calls; off by default
+# kill_grace_ms = 3000        # SPEAK_DAEMON_KILL_GRACE_MS; SIGTERM->SIGKILL grace
+# health_interval = 15        # SPEAK_DAEMON_HEALTH_INTERVAL; upstream probe period (s; 0 = off)
+# health_timeout = 5          # SPEAK_HEALTH_TIMEOUT; per-probe timeout (seconds)
+# health_fails = 3            # SPEAK_DAEMON_HEALTH_FAILS; failures before self-recovery
 
 [general]
 quiet = false

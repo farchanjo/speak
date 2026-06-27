@@ -224,10 +224,20 @@ pub struct Realtime {
 pub struct Daemon {
     /// Unix socket path.
     pub socket: PathBuf,
+    /// Single-instance PID file (ADR-0010); written atomically, removed on exit.
+    pub pidfile: PathBuf,
     /// Idle shutdown timeout seconds (0 = never).
     pub idle_timeout: u64,
     /// Auto-start a daemon for CLI calls when none is running.
     pub autostart: bool,
+    /// Grace (ms) to wait after SIGTERM before SIGKILL when replacing a daemon.
+    pub kill_grace_ms: u64,
+    /// Upstream health-probe interval in seconds (0 = watchdog disabled).
+    pub health_interval: u64,
+    /// Per-probe upstream health timeout in seconds.
+    pub health_timeout: u64,
+    /// Consecutive failed probes before the daemon self-recovers (ADR-0010).
+    pub health_fails: u32,
 }
 
 /// `[general]` and misc settings.
@@ -440,8 +450,13 @@ struct FileRealtime {
 #[derive(Debug, Default, Deserialize)]
 struct FileDaemon {
     socket: Option<String>,
+    pidfile: Option<String>,
     idle_timeout: Option<u64>,
     autostart: Option<bool>,
+    kill_grace_ms: Option<u64>,
+    health_interval: Option<u64>,
+    health_timeout: Option<u64>,
+    health_fails: Option<u32>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1028,16 +1043,24 @@ impl Resolver {
     }
 
     fn daemon(&mut self) -> Daemon {
-        let default_socket = paths::default_socket().display().to_string();
         let socket = self.val(
             "daemon.socket",
             None,
             "SPEAK_DAEMON_SOCKET",
             self.file.daemon.socket.clone(),
-            default_socket,
+            paths::default_socket().display().to_string(),
         );
+        let pidfile = self.val(
+            "daemon.pidfile",
+            None,
+            "SPEAK_DAEMON_PIDFILE",
+            self.file.daemon.pidfile.clone(),
+            paths::default_pidfile().display().to_string(),
+        );
+        let (kill_grace_ms, health_interval, health_timeout, health_fails) = self.daemon_health();
         Daemon {
             socket: PathBuf::from(socket),
+            pidfile: PathBuf::from(pidfile),
             idle_timeout: self.val(
                 "daemon.idle_timeout",
                 None,
@@ -1052,7 +1075,44 @@ impl Resolver {
                 self.file.daemon.autostart,
                 false,
             ),
+            kill_grace_ms,
+            health_interval,
+            health_timeout,
+            health_fails,
         }
+    }
+
+    /// Resolve the daemon kill-grace + health-watchdog knobs (ADR-0010).
+    fn daemon_health(&mut self) -> (u64, u64, u64, u32) {
+        let kill_grace_ms = self.val(
+            "daemon.kill_grace_ms",
+            None,
+            "SPEAK_DAEMON_KILL_GRACE_MS",
+            self.file.daemon.kill_grace_ms,
+            3_000,
+        );
+        let health_interval = self.val(
+            "daemon.health_interval",
+            None,
+            "SPEAK_DAEMON_HEALTH_INTERVAL",
+            self.file.daemon.health_interval,
+            15,
+        );
+        let health_timeout = self.val(
+            "daemon.health_timeout",
+            None,
+            "SPEAK_HEALTH_TIMEOUT",
+            self.file.daemon.health_timeout,
+            5,
+        );
+        let health_fails = self.val(
+            "daemon.health_fails",
+            None,
+            "SPEAK_DAEMON_HEALTH_FAILS",
+            self.file.daemon.health_fails,
+            3,
+        );
+        (kill_grace_ms, health_interval, health_timeout, health_fails)
     }
 
     fn general(&mut self) -> General {
@@ -1596,6 +1656,12 @@ mod tests {
             "realtime.chunk_secs",
             "ffmpeg.threads",
             "daemon.idle_timeout",
+            // daemon single-instance + health watchdog (ADR-0010)
+            "daemon.pidfile",
+            "daemon.kill_grace_ms",
+            "daemon.health_interval",
+            "daemon.health_timeout",
+            "daemon.health_fails",
         ] {
             assert!(
                 keys.contains(&key),

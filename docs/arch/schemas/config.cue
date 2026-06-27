@@ -184,10 +184,19 @@ package schemas
 
 // [daemon]. `autostart=true` lets a one-shot CLI invocation auto-launch the
 // daemon binary on first use (vs silently running one-shot when false).
+// Single-instance + health-watchdog knobs (ADR-0010): `pidfile` is the
+// single-instance lock; `kill_grace_ms` bounds the SIGTERM->SIGKILL replace; the
+// `health_*` trio drives the upstream watchdog + self-recovery. All are
+// env-overridable (FR-18), some with bespoke env names (SPEAK_HEALTH_TIMEOUT).
 #Daemon: {
-	socket:        string & !="" | *"~/.speak/speak.sock"
-	idle_timeout?: int & >=0
-	autostart:     bool | *false
+	socket:           string & !="" | *"~/.speak/speak.sock" // SPEAK_DAEMON_SOCKET
+	pidfile:          string & !="" | *"~/.speak/speak.pid"  // SPEAK_DAEMON_PIDFILE
+	idle_timeout?:    int & >=0                              // SPEAK_DAEMON_IDLE_TIMEOUT
+	autostart:        bool | *false                          // SPEAK_DAEMON_AUTOSTART
+	kill_grace_ms:    int & >=0 | *3000                      // SPEAK_DAEMON_KILL_GRACE_MS
+	health_interval:  int & >=0 | *15                        // SPEAK_DAEMON_HEALTH_INTERVAL (0 = off)
+	health_timeout:   int & >0 | *5                          // SPEAK_HEALTH_TIMEOUT
+	health_fails:     int & >0 | *3                          // SPEAK_DAEMON_HEALTH_FAILS
 }
 
 // [http] — non-OpenAI chat-MT endpoint and the save directory for `-o`/saved
