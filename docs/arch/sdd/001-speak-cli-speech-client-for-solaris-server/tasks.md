@@ -173,7 +173,7 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   maps to `mainMixerNode.outputVolume`. Live-verified against this host's 9 HAL
   devices (names/UIDs/channels/rates/defaults correct). The `speak devices` CLI
   wiring is T056.)
-- [ ] T036 `[adapter:sse]` `eventsource-stream` consumer decoding realtime frames
+- [x] T036 `[adapter:sse]` `eventsource-stream` consumer decoding realtime frames
   `{type, text?, audio_b64?, format?, seq?}` into a typed `RealtimeFrame`;
   implements `RealtimeStream`. Selection is a **runtime** capability probe (via
   `ServerProbe`), not a compile-time feature: one prebuilt binary detects the
@@ -181,6 +181,25 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   is absent (the `eventsource-stream` dependency is always linked; an optional
   `realtime-sse` Cargo feature may gate the parser out only for size-constrained
   builds) (ADR-0004).
+  (`src/adapters/sse/`: `SseRealtimeClient` (Factory `new(&Config)`) builds the
+  warm pool bound to `POST /v1/realtime/translate`; `RealtimeRequest` is the pure
+  multipart projection (`file` + `to`/`translate`/`voice`/`instruct`/`language`/
+  `format`). `SseStreamFactory` posts the chunk and wraps `reqwest`'s
+  `bytes_stream().eventsource()` (the new `stream` reqwest feature) as
+  `SseRealtimeStream`, whose `recv` decodes each `event: <TYPE>\ndata: <json>`
+  frame (`frame::decode`, base64-decoding `audio_b64`) into the typed
+  `RealtimeFrame`, skipping heartbeats/unknown types; a mid-stream `Transport`
+  drop is surfaced as the inner `reqwest::Error` so the `ReconnectingStream`
+  decorator (T046) reconnects under the same `[retry]` policy. `stream()` returns
+  the ready `ReconnectingStream<SseStreamFactory, RetryPolicy>`. Selection is the
+  CLI's `facade.supports_realtime()` probe: SSE path when present, chunked
+  fallback otherwise. New deps: `futures-util`, `base64`, reqwest `stream`. Unit
+  tests cover the pure frame decoder (transcript/translation/audio/done/error/
+  unknown/bad-base64) and a network-free `recv` over an in-memory SSE byte stream.
+  LIVE-VERIFIED against solaris (`tests/integration.rs::realtime_sse_streams_
+  transcript_and_audio`): a French clip minted by the Synthesizer, POSTed with
+  `translate=true to=en instruct="Female, British Accent"`, streamed back
+  `transcript` + `audio` + `done` frames in ~6 s.)
 - [x] T037 `[adapter:config]` layered config (flags > env > `~/.speak/config.toml`
   > default), migration from `~/.config/speak`, `config init` commented template,
   `config show` value+origin, `config path`; implements `ConfigProvider`
@@ -218,11 +237,26 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   `ports::AudioEncoder::encode` over the `RecordFormat` Strategy. Validated by an
   encode->decode round-trip unit test (mono + stereo); the `record` CLI/use case
   wiring is T043/T055.)
-- [ ] T039 `[adapter:chatmt]` arbitrary-target machine translation: implement the
+- [x] T039 `[adapter:chatmt]` arbitrary-target machine translation: implement the
   `Translator` **Strategy** against `[http].translate_url` /
   `[http].translate_model` (non-OpenAI chat-MT endpoint), reusing the warm pool;
   selected when `--to` is non-English and `translate_url` is set, else degrade
   to the source transcript with a clear notice (FR-8 / ADR-0004).
+  (`src/adapters/chatmt/`: `ChatMtTranslator<T: Transcriber>` implements the
+  `Translator` port — it ASRs the chunk via the injected transcriber, then POSTs
+  `{translate_url}/v1/chat/completions` with the system prompt `"Translate into
+  <to>. Output only the translation."`, `[http].translate_model` (default
+  `qwen2.5-14b-instruct`), `temperature=0.3`, `max_tokens=512`, parsing
+  `choices[0].message.content`. `new` returns `Ok(None)` when `translate_url` is
+  unset. Wired at the composition root into `cli::speech::DirectSpeech`: the
+  in-process `SpeechRole::translate` routes by target — English -> Whisper
+  translate, non-English + chat-MT configured -> chat-MT, non-English without it
+  -> degrade to the source transcript. `translate --to <lang>` (new flag) and the
+  realtime chunked Translate mode both ride this routing; the realtime SSE path
+  delegates MT to the server. Daemon-forwarded translate keeps the server/Whisper
+  behaviour (documented caveat, like `say --native`). Unit-tested: chat body
+  (system prompt + target + user text + model/temp/max_tokens) and response
+  parsing (trimmed content, empty choices).)
 - [x] T046 `[adapter:retry]` transport-agnostic retry **decorator(s)**: for each
   wrapped driven port (`Synthesizer`, `Transcriber`, `Translator`,
   `VoiceRepository`, `RealtimeStream`, `ServerProbe`) a generic
