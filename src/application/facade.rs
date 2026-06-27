@@ -17,6 +17,9 @@ use crate::application::check::{CheckOutcome, CheckUseCase, HealthOutcome};
 use crate::application::realtime::{RealtimeEvent, RealtimeOptions, RealtimeStep, RealtimeUseCase};
 use crate::application::record::{RecordOptions, RecordOutcome, RecordUseCase};
 use crate::application::say::{SayOptions, SayOutcome, SayUseCase};
+use crate::application::stream_transcribe::{
+    StreamTranscribeOptions, StreamTranscribeUseCase, TranscribeStreamEnd,
+};
 use crate::application::transcribe::TranscribeUseCase;
 use crate::application::translate::TranslateUseCase;
 use crate::application::voices::VoicesUseCase;
@@ -166,6 +169,38 @@ impl<Speech, Audio, Codec> SpeakFacade<Speech, Audio, Codec> {
         Codec: AudioDecoder + AudioEncoder,
     {
         self.realtime().drive_stream(stream, opts, on_event).await
+    }
+
+    /// Capture one streaming-transcribe chunk as WAV, gated by VAD (ADR-0014).
+    pub async fn stream_transcribe_capture(
+        &self,
+        opts: &StreamTranscribeOptions,
+    ) -> Result<Option<Vec<u8>>>
+    where
+        Audio: AudioSource,
+        Codec: AudioDecoder + AudioEncoder,
+    {
+        StreamTranscribeUseCase::new(&self.audio, &self.codec)
+            .capture(opts)
+            .await
+    }
+
+    /// Drive a transcript-only SSE stream, invoking `on_transcript` per frame
+    /// and ignoring re-voiced audio/translation frames (ADR-0014).
+    pub async fn stream_transcribe_drive<St, F>(
+        &self,
+        stream: &mut St,
+        on_transcript: F,
+    ) -> Result<TranscribeStreamEnd>
+    where
+        St: RealtimeStream,
+        F: FnMut(&str),
+        Audio: AudioSource,
+        Codec: AudioDecoder + AudioEncoder,
+    {
+        StreamTranscribeUseCase::new(&self.audio, &self.codec)
+            .drive(stream, on_transcript)
+            .await
     }
 
     /// Whether the server advertises the realtime SSE endpoint (FR-14, ADR-0004).
