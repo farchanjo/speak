@@ -132,9 +132,12 @@ impl AudioDecoder for FakeCodec {
     }
 
     fn resample(&self, pcm: &PcmBuffer, sample_rate: u32, channels: u16) -> Result<PcmBuffer> {
+        // Preserve the input's signal level so the realtime silence gate, which
+        // runs on the resampled mono buffer, can tell silence from speech.
         let frames = pcm.frames().max(1);
+        let level = pcm.samples().first().copied().unwrap_or(0.0);
         Ok(PcmBuffer::new(
-            vec![0.0; frames * usize::from(channels.max(1))],
+            vec![level; frames * usize::from(channels.max(1))],
             sample_rate,
             channels,
         ))

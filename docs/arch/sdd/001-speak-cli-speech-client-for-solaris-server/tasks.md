@@ -255,8 +255,24 @@ layout); `[ ]` = pending for the hexagonal rebuild. The flat-layout client
   `RecordOutcome` returns the muxed bytes + frames/secs so the driving adapter
   writes `--output`. Unit-tested over the port doubles (no-resample WAV and
   resampled FLAC paths); the `speak record` CLI wiring is T055.)
-- [ ] T044 `[application]` `realtime` use case with the three **Strategy** modes
+- [x] T044 `[application]` `realtime` use case with the three **Strategy** modes
   (`translate`/`no-translate`/`echo`), SSE or chunked, multi-output.
+  (`src/application/realtime.rs`: `RealtimeUseCase` is generic over the three
+  adapter roles (`Speech` = synthesize/transcribe/translate, `Audio` =
+  capture/play, `Codec` = resample/encode). The chunked path `step()` captures
+  one chunk, resamples to 16 kHz mono, applies the pure RMS silence gate, then
+  dispatches the `RealtimeMode` Strategy — `Translate` (Whisper/chat-MT via the
+  `Translator` port -> re-voice), `NoTranslate` (ASR -> re-voice), `Echo` (raw
+  playback -> ASR -> re-voice); all re-voicing builds a per-chunk `SpeechSpec` in
+  the chosen output voice and routes through the shared `playback` helper (single
+  device or fan-out, FR-11). The SSE path `pump_frame()`/`drive_stream()` consume
+  the `RealtimeStream` port's typed `RealtimeFrame`s (Audio -> decode+play, text
+  -> surfaced to the driving adapter, Done/Error -> terminate); the runtime
+  SSE-vs-chunked selection is the composition root's (T054). The Ctrl-C loop and
+  terminal output stay in the driving adapter. Six unit tests over the port
+  doubles cover all three modes, the VAD gate, empty results, and frame pumping;
+  the realtime CLI flags (`--translate`/`--no-translate`/`--echo`,
+  `--output-device`) are T051.)
 - [ ] T045 `[application]` application **Facade** shared by CLI and daemon.
 - [ ] T047 `[application]` `check`/`health` use case: orchestrate the `ServerProbe`
   port (`GET /health`, `GET /v1/models`, realtime capability probe) and the
