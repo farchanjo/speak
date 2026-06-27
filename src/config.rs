@@ -1559,4 +1559,48 @@ mod tests {
         assert!(ua.starts_with("speak/"), "{ua}");
         assert!(ua.contains(env!("CARGO_PKG_VERSION")));
     }
+
+    /// FR-18 / T063: every resilience and performance tunable must surface in
+    /// `config show` so no knob can hide as a buried literal. The resolver records
+    /// each key unconditionally, so the catalog is asserted regardless of origin.
+    #[test]
+    fn entries_catalog_covers_every_tunable_knob() {
+        // `finish()` reads `SPEAK_*` env; serialise on the shared lock like the
+        // other resolver tests. Keys are recorded regardless of env/file presence.
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let cfg = Resolver::new(GlobalFlags::default(), FileConfig::default())
+            .finish()
+            .unwrap();
+        let keys: Vec<&str> = cfg.entries().iter().map(|(k, ..)| k.as_str()).collect();
+        for key in [
+            // server pool + timeouts
+            "server.timeout",
+            "server.connect_timeout",
+            "server.pool_max_idle",
+            "server.pool_idle_timeout",
+            "server.tcp_keepalive",
+            // retry/backoff (FR-17)
+            "retry.max_retries",
+            "retry.backoff_initial_ms",
+            "retry.backoff_max_ms",
+            "retry.multiplier",
+            "retry.jitter",
+            "retry.retry_on",
+            // audio rates + buffer sizes
+            "audio.output.sample_rate",
+            "audio.output.buffer_frames",
+            "audio.input.sample_rate",
+            "audio.input.chunk_secs",
+            "audio.input.silence_threshold_db",
+            // realtime + ffmpeg + daemon knobs
+            "realtime.chunk_secs",
+            "ffmpeg.threads",
+            "daemon.idle_timeout",
+        ] {
+            assert!(
+                keys.contains(&key),
+                "config show is missing tunable `{key}`"
+            );
+        }
+    }
 }

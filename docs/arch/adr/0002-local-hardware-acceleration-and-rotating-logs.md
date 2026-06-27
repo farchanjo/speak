@@ -58,6 +58,9 @@ Chosen option: "Option A".
   AudioToolbox); a discoverable `speak check`; bounded, env-driven logs.
 - Good: rejecting option B avoids a misleading and unimplementable GPU
   audio-decode path.
+- Enforced: the libav decode path is strictly **in-process** — a `tests/gates.rs`
+  scan (`zero_media_exec_in_src`) fails the build on any external-process spawn
+  in `src/`, so `speak` can never regress to shelling out `ffmpeg`/`afplay`.
 - Bad: the AudioToolbox speed-up for tiny TTS/ASR clips is marginal (decode is
   already a fraction of inference time); the main win is correctness and
   observability rather than raw throughput.

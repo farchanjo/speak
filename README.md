@@ -55,11 +55,19 @@ What is covered:
   per-key origin recorded for `config show`.
 - **Adapters** — the OpenAI `_byot` speech-request body shape (instruct +
   pass-through gen-params), reply interpretation, the daemon's length-prefixed
-  framing round-trip over a real `UnixStream` pair, libav WAV muxing / RMS, and
-  path/acceleration resolution.
+  framing round-trip over a real `UnixStream` pair, the retry decorator/classify
+  surface, libav WAV muxing / RMS, and path/acceleration resolution.
+- **Application** — each use case over in-memory port doubles, including the
+  three realtime `Strategy` arms (translate / no-translate / echo), the VAD
+  silence gate, and the SSE drive loop (`drive_stream`) over a scripted stream.
 - **CLI** — `--version`/`--help`, `ValueEnum` rejection, completions, the
   voice-design catalog, and `config show` origin reporting, all driven against
   the compiled binary with no network.
+- **Hygiene gates** (`tests/gates.rs`) — a **zero-media-exec** scan that fails
+  on any external-process spawn in `src/` (the media path is in-process libav +
+  CoreAudio, never a shelled-out `ffmpeg`/`afplay`), and a **zero-magic-numbers**
+  scan that asserts every `config.rs` knob resolves through a `SPEAK_*` env
+  override and appears in `config show` (FR-17 / FR-18).
 
 The `integration` feature gates a suite that talks to the live server
 (`SPEAK_HOST`, default `http://solaris:8800`); each test probes the port first
