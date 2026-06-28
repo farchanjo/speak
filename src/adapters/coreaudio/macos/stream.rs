@@ -24,7 +24,10 @@ use super::{engine, tap};
 
 /// How many chunk slots the producer→consumer channel buffers before the
 /// producer blocks (then the ring's `cap_secs` ceiling governs drop-oldest).
-const CHANNEL_CHUNKS: usize = 8;
+/// Kept shallow (ADR-0018): the pipelined consumer overlaps round trips, so a
+/// deep channel would only add hidden latency — the ring (`buffer_secs`) is the
+/// real backpressure ceiling.
+const CHANNEL_CHUNKS: usize = 2;
 /// Poll interval while the producer waits for a full chunk to accumulate.
 const POLL_MS: u64 = 20;
 
