@@ -4,8 +4,13 @@ version = "0.1.0"
 edition = "2024"
 resolver = "3"
 rust-version = "1.95"
-description = "Speech client for the solaris OpenAI-compatible TTS/ASR server"
+description = "OpenAI-compatible speech CLI for the OmniVoice server — TTS, voice design & cloning, Whisper STT, Qwen translation, realtime SSE, native macOS audio"
 license = "MIT"
+authors = ["Fabricio Archanjo <fabricio@eonf.ltd>"]
+repository = "https://github.com/farchanjo/speak"
+readme = "README.md"
+keywords = ["tts", "speech", "whisper", "translation", "cli"]
+categories = ["command-line-utilities", "multimedia::audio"]
 
 [lib]
 name = "speak"
