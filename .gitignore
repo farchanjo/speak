@@ -1,1 +1,13 @@
+# Rust build artifacts
 /target
+
+# Release tarballs + checksums (make release)
+/dist
+
+# macOS finder metadata
+.DS_Store
+**/.DS_Store
+
+# Editor / local scratch
+*.swp
+*~
