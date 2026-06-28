@@ -116,7 +116,9 @@ speak say --voice <saved-name> "..."                    # voice clone
 speak transcribe audio.mp3                              # STT (file, one-shot)
 speak transcribe --stream                              # live mic → incremental transcript (ADR-0014)
 speak transcribe --stream --source output              # transcribe the PC output (native tap, Phase 2)
-speak translate audio.mp3 --format srt                  # translate (+ srt/vtt)
+speak translate audio.mp3 --format srt                  # translate (file, + srt/vtt)
+speak translate --stream --to es                        # live mic → incremental translation (ADR-0017)
+speak translate --stream --source output --to fr        # translate the PC output live
 speak realtime --translate --to fr --instruct "Female, British Accent"   # live SSE translation
 speak realtime -d <id> --no-vad --echo                  # pin input device (ADR-0011), gate off, echo test
 speak voices add <name> --audio ref.wav [--ref-text "..."]   # voices list | rm
@@ -136,7 +138,7 @@ Global flags: `-H/--host -K/--api-key -L/--lang -C/--voice -J/--json -q/--quiet 
 **Streaming transcribe** (`transcribe -S/--stream`, ADR-0014): live capture → SSE
 `/v1/realtime/translate` with `translate=false`, prints only `transcript` frames (no re-voicing/playback);
 shares the realtime capture flags (`-d -I -c/--chunk -x -F`). `-s/--source input|output` (ADR-0015,
-shared by `transcribe --stream` / `realtime` / `record`; overrides `[audio.capture].source`)
+shared by `transcribe --stream` / `translate --stream` / `realtime` / `record`; overrides `[audio.capture].source`)
 selects the capture side: `input` (mic/line-in, default) or `output` (host/sound-card playback).
 `output` uses a **native macOS Core Audio tap** (macOS 14.4+, ADR-0015): a stereo global
 `CATapDescription` → process tap → private aggregate device, read directly by id via an
