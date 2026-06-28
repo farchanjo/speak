@@ -51,6 +51,7 @@ speckit project at `~/dev/omnivoice-server`.
 | 0015 | Capture source selection and native macOS output tap |
 | 0016 | TCC responsibility-disclaim re-exec for host-output capture |
 | 0017 | Decoupled streaming-capture pipeline (continuous producer + bounded queue) |
+| 0018 | Pipelined in-flight SSE consumer for streaming capture |
 
 > SDD features: `001-…-solaris-server` (accepted), `002-streaming-transcribe-and-capture-source-selection` (draft).
 > ADR-0020 is *cited* by `docs/arch/specs/acceptance-coverage.md` for the speckit Gherkin
@@ -234,10 +235,12 @@ native capture (tap IOProc / AVAudioEngine tap)
   └─ RT callback appends interleaved f32 → CaptureRing (VecDeque<f32> behind Mutex,
        drops oldest past cap_secs)
         └─ speak-capture thread (producer): drains chunk_secs every POLL_MS=20 ms,
-             blocking_send → bounded tokio mpsc (CHANNEL_CHUNKS=8 slots)
-                  └─ consumer loop (cli): recv → resample 16 kHz mono → VAD gate →
-                       encode WAV → POST SSE → present; producer fills N+1 while
-                       consumer handles N (sequential per chunk, racing Ctrl-C)
+             blocking_send → bounded tokio mpsc (CHANNEL_CHUNKS=2 slots, ADR-0018)
+                  └─ pipelined consumer (cli/stream_pipeline.rs, ADR-0018): up to
+                       MAX_INFLIGHT=3 chunk POSTs overlap; encode+VAD per chunk, then
+                       collect_chunk POSTs SSE; a FuturesOrdered presents completed
+                       chunks in CAPTURE ORDER (never interleaved), racing one pinned
+                       Ctrl-C. Throughput = MAX_INFLIGHT / round_trip (vs 1/round_trip)
 ```
 
 - API: `CoreAudio::capture_stream(source, chunk_secs, cap_secs) -> NativeCaptureStream`
@@ -250,10 +253,12 @@ native capture (tap IOProc / AVAudioEngine tap)
 - `transcribe --stream` (ADR-0014): POST `/v1/realtime/translate` with `translate=false`;
   prints only `transcript` frames; `audio`/`translation` frames ignored (no re-voicing/playback).
 - `translate --stream` (ADR-0017 extension): same pipeline, POST with `translate=true` +
-  `to`; prints only `translation` frames. Both call the shared `StreamTranscribeUseCase`
-  via `facade.stream_transcribe_drive`; `cli::stream_options(...)` builds the options and
-  `drive()`'s `FnMut(FrameKind, &str)` callback selects which `FrameKind` (Transcript vs
-  Translation) to present.
+  `to`; prints only `translation` frames. Both drive the shared pipelined consumer
+  `cli::stream_pipeline::run` (ADR-0018): a `build` closure encodes each chunk (VAD-gated)
+  and returns the `collect_chunk` future, which POSTs the SSE stream via the shared
+  `StreamTranscribeUseCase` (`facade.stream_transcribe_drive`) and collects the wanted
+  `FrameKind` (Transcript vs Translation). `cli::stream_options(...)` builds the options.
+  Up to `MAX_INFLIGHT` POSTs overlap; a `FuturesOrdered` keeps output in capture order.
 - **Ctrl-C**: ONE persistent `let mut shutdown = pin!(tokio::signal::ctrl_c())` outside the
   loop; `select!` races `&mut shutdown` against `drive_one(...)`. WHY: a fresh `ctrl_c()`
   per iteration registers a handler that hasn't subscribed yet → a SIGINT delivered mid-POST
