@@ -14,7 +14,9 @@ use anyhow::Result;
 
 use crate::adapters::libav::accel::Report as AccelReport;
 use crate::application::check::{CheckOutcome, CheckUseCase, HealthOutcome};
-use crate::application::realtime::{RealtimeEvent, RealtimeOptions, RealtimeStep, RealtimeUseCase};
+use crate::application::realtime::{
+    FrameKind, RealtimeEvent, RealtimeOptions, RealtimeStep, RealtimeUseCase,
+};
 use crate::application::record::{RecordOptions, RecordOutcome, RecordUseCase};
 use crate::application::say::{SayOptions, SayOutcome, SayUseCase};
 use crate::application::stream_transcribe::{
@@ -198,20 +200,20 @@ impl<Speech, Audio, Codec> SpeakFacade<Speech, Audio, Codec> {
         StreamTranscribeUseCase::new(&self.codec).encode(raw, opts)
     }
 
-    /// Drive a transcript-only SSE stream, invoking `on_transcript` per frame
-    /// and ignoring re-voiced audio/translation frames (ADR-0014).
+    /// Drive a text-only SSE stream, invoking `on_text` per transcript/translation
+    /// frame with its [`FrameKind`] and ignoring re-voiced audio (ADR-0014).
     pub async fn stream_transcribe_drive<St, F>(
         &self,
         stream: &mut St,
-        on_transcript: F,
+        on_text: F,
     ) -> Result<TranscribeStreamEnd>
     where
         St: RealtimeStream,
-        F: FnMut(&str),
+        F: FnMut(FrameKind, &str),
         Codec: AudioDecoder + AudioEncoder,
     {
         StreamTranscribeUseCase::new(&self.codec)
-            .drive(stream, on_transcript)
+            .drive(stream, on_text)
             .await
     }
 

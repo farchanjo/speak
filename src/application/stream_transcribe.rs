@@ -12,6 +12,7 @@
 use anyhow::Result;
 
 use crate::application::capture::encode_chunk;
+use crate::application::realtime::FrameKind;
 use crate::domain::capture_source::CaptureSource;
 use crate::domain::pcm::PcmBuffer;
 use crate::ports::codec::{AudioDecoder, AudioEncoder};
@@ -74,27 +75,26 @@ where
         )
     }
 
-    /// Drive an SSE stream transcript-only: surface `transcript` text, ignore
-    /// `audio`/`translation` frames without playback, end on `done`/`error`.
-    pub async fn drive<St, F>(
-        &self,
-        stream: &mut St,
-        mut on_transcript: F,
-    ) -> Result<TranscribeStreamEnd>
+    /// Drive an SSE stream text-only: surface each `transcript`/`translation`
+    /// frame to `on_text` with its [`FrameKind`] (the caller prints the kind it
+    /// wants — `transcribe --stream` the transcript, `translate --stream` the
+    /// translation), ignore re-voiced `audio` frames without playback, and end on
+    /// `done`/`error`.
+    pub async fn drive<St, F>(&self, stream: &mut St, mut on_text: F) -> Result<TranscribeStreamEnd>
     where
         St: RealtimeStream,
-        F: FnMut(&str),
+        F: FnMut(FrameKind, &str),
     {
         while let Some(frame) = stream.recv().await? {
             match frame {
-                RealtimeFrame::Transcript { text } => on_transcript(&text),
+                RealtimeFrame::Transcript { text } => on_text(FrameKind::Transcript, &text),
+                RealtimeFrame::Translation { text } => on_text(FrameKind::Translation, &text),
                 RealtimeFrame::Done => return Ok(TranscribeStreamEnd::Done),
                 RealtimeFrame::Error { message } => {
                     return Ok(TranscribeStreamEnd::Failed { message });
                 }
-                // Re-voiced audio and translation frames are not part of a
-                // transcript-only stream; ignore them without playback.
-                RealtimeFrame::Audio { .. } | RealtimeFrame::Translation { .. } => {}
+                // Re-voiced audio frames are not part of a text stream.
+                RealtimeFrame::Audio { .. } => {}
             }
         }
         Ok(TranscribeStreamEnd::Exhausted)
@@ -127,7 +127,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn drive_surfaces_transcripts_and_ignores_audio_and_translation() {
+    async fn drive_surfaces_transcript_and_translation_ignoring_audio() {
         let codec = FakeCodec;
         let uc = StreamTranscribeUseCase::new(&codec);
         let mut stream = FakeStream::new(vec![
@@ -142,23 +142,26 @@ mod tests {
             RealtimeFrame::Translation {
                 text: "good morning".into(),
             },
-            RealtimeFrame::Transcript {
-                text: "tudo bem".into(),
-            },
             RealtimeFrame::Done,
             RealtimeFrame::Transcript {
                 text: "unreached".into(),
             },
         ]);
 
-        let mut lines = Vec::new();
+        let mut out = Vec::new();
         let end = uc
-            .drive(&mut stream, |t| lines.push(t.to_owned()))
+            .drive(&mut stream, |kind, t| out.push((kind, t.to_owned())))
             .await
             .unwrap();
 
         assert_eq!(end, TranscribeStreamEnd::Done);
-        assert_eq!(lines, vec!["bom dia".to_owned(), "tudo bem".to_owned()]);
+        assert_eq!(
+            out,
+            vec![
+                (FrameKind::Transcript, "bom dia".to_owned()),
+                (FrameKind::Translation, "good morning".to_owned()),
+            ]
+        );
     }
 
     #[tokio::test]
@@ -172,9 +175,9 @@ mod tests {
             RealtimeFrame::Done,
         ]);
 
-        let mut lines = Vec::new();
+        let mut out = Vec::new();
         let end = uc
-            .drive(&mut stream, |t| lines.push(t.to_owned()))
+            .drive(&mut stream, |kind, t| out.push((kind, t.to_owned())))
             .await
             .unwrap();
         assert_eq!(
@@ -183,7 +186,7 @@ mod tests {
                 message: "backend down".into()
             }
         );
-        assert!(lines.is_empty());
+        assert!(out.is_empty());
     }
 
     #[tokio::test]
@@ -191,12 +194,12 @@ mod tests {
         let codec = FakeCodec;
         let uc = StreamTranscribeUseCase::new(&codec);
         let mut stream = FakeStream::new(vec![RealtimeFrame::Transcript { text: "hi".into() }]);
-        let mut lines = Vec::new();
+        let mut out = Vec::new();
         let end = uc
-            .drive(&mut stream, |t| lines.push(t.to_owned()))
+            .drive(&mut stream, |kind, t| out.push((kind, t.to_owned())))
             .await
             .unwrap();
         assert_eq!(end, TranscribeStreamEnd::Exhausted);
-        assert_eq!(lines, vec!["hi".to_owned()]);
+        assert_eq!(out, vec![(FrameKind::Transcript, "hi".to_owned())]);
     }
 }
