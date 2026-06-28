@@ -31,6 +31,7 @@ pub(crate) mod realtime;
 pub(crate) mod record;
 pub(crate) mod say;
 pub(crate) mod speech;
+pub(crate) mod stream_pipeline;
 pub(crate) mod transcribe;
 pub(crate) mod translate;
 pub(crate) mod voices;

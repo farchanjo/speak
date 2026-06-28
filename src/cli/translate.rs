@@ -15,17 +15,17 @@
 use anyhow::{Context, Result, bail};
 
 use speak::adapters::config::Config;
-use speak::adapters::coreaudio::{CoreAudio, NativeCaptureStream};
+use speak::adapters::coreaudio::CoreAudio;
 use speak::adapters::sse::{RealtimeRequest, SseRealtimeClient};
-use speak::application::{FrameKind, StreamTranscribeOptions, TranscribeStreamEnd};
+use speak::application::FrameKind;
 use speak::domain::language::Language;
-use speak::domain::pcm::PcmBuffer;
 use speak::ports::presenter::Presenter;
 use speak::ports::transcriber::TranscribeRequest;
 
 use super::AppFacade;
 use super::args::{TextFormat, TranslateArgs};
 use super::file_name;
+use super::stream_pipeline;
 
 /// Advertised file name for a captured streaming chunk.
 const CHUNK_NAME: &str = "chunk.wav";
@@ -81,74 +81,27 @@ pub(crate) async fn run_stream(
         to = %args.to,
         "stream translate starting; Ctrl-C to stop"
     );
-    let mut shutdown = std::pin::pin!(tokio::signal::ctrl_c());
-    loop {
-        tokio::select! {
-            _ = &mut shutdown => {
-                tracing::info!("stream translate stopping");
-                return Ok(());
+    // Pipeline up to MAX_INFLIGHT chunk POSTs, presenting translations in capture
+    // order (ADR-0018); a slow round trip no longer stalls the consumer.
+    stream_pipeline::run(&mut capture, presenter, "stream translate", |chunk| {
+        let wav = match facade.stream_transcribe_encode(chunk.0, &opts) {
+            Ok(Some(wav)) => wav,
+            Ok(None) => return None, // silence — VAD-gated
+            Err(e) => {
+                tracing::warn!("stream translate encode failed: {e:#}");
+                return None;
             }
-            outcome = drive_one(facade, cfg, &args, sse, &opts, &mut capture, presenter) => {
-                match outcome {
-                    Ok(true) => {
-                        tracing::warn!("capture stream ended");
-                        return Ok(());
-                    }
-                    Ok(false) => {}
-                    Err(e) => tracing::warn!("stream translate chunk failed: {e:#}"),
-                }
-            }
-        }
-    }
-}
-
-/// Receive + process one chunk; `Ok(true)` when the capture stream has ended.
-/// Run inside the loop's `select!` so Ctrl-C cancels it cleanly.
-async fn drive_one(
-    facade: &AppFacade,
-    cfg: &Config,
-    args: &TranslateArgs,
-    sse: &SseRealtimeClient,
-    opts: &StreamTranscribeOptions,
-    capture: &mut NativeCaptureStream,
-    presenter: &mut dyn Presenter,
-) -> Result<bool> {
-    let Some(raw) = capture.recv().await else {
-        return Ok(true);
-    };
-    process_chunk(facade, cfg, args, sse, opts, raw, presenter).await?;
-    Ok(false)
-}
-
-/// Encode one captured chunk, stream it with `translate=true`, print translations.
-async fn process_chunk(
-    facade: &AppFacade,
-    cfg: &Config,
-    args: &TranslateArgs,
-    sse: &SseRealtimeClient,
-    opts: &StreamTranscribeOptions,
-    raw: PcmBuffer,
-    presenter: &mut dyn Presenter,
-) -> Result<()> {
-    let Some(wav) = facade.stream_transcribe_encode(raw, opts)? else {
-        return Ok(());
-    };
-    let request = stream_request(wav, cfg, args);
-    let mut stream = sse.stream(request, cfg.retry.policy, cfg.retry.jitter_seed);
-    let mut emit_err = None;
-    let end = facade
-        .stream_transcribe_drive(&mut stream, |kind, text| {
-            if kind == FrameKind::Translation
-                && let Err(e) = presenter.line(text)
-            {
-                emit_err.get_or_insert(e);
-            }
-        })
-        .await?;
-    if let TranscribeStreamEnd::Failed { message } = end {
-        tracing::warn!("stream translate server error: {message}");
-    }
-    emit_err.map_or(Ok(()), Err)
+        };
+        let request = stream_request(wav, cfg, &args);
+        Some(stream_pipeline::collect_chunk(
+            facade,
+            sse,
+            cfg,
+            request,
+            FrameKind::Translation,
+        ))
+    })
+    .await
 }
 
 /// Project the captured chunk + config onto a `translate=true` SSE request.
