@@ -152,6 +152,20 @@ export LIBCLANG_PATH=/opt/homebrew/opt/llvm/lib
 `speak --version`, currently `0.1.0`), then tag `vX.Y.Z`. Mac arm64 is the primary target;
 Linux musl targets are installed but need a cross libav toolchain.
 
+**Tag ⟹ Release (MANDATORY — never a tag without a GitHub release).** Every `vX.Y.Z`
+git tag MUST ship a matching GitHub release carrying the built artifacts. The exact flow:
+```bash
+# 1. set version in Cargo.toml (vX.Y.Z without the leading v), commit it
+make release                              # → dist/speak-<ver>-<target>.tar.gz + .sha256 (Apple-signed)
+git tag -a vX.Y.Z -m "speak vX.Y.Z"       # annotated tag on the release commit
+git push origin vX.Y.Z                     # push the tag
+gh release create vX.Y.Z \                 # ALWAYS create the release in the same step
+  --title "vX.Y.Z" --notes "<highlights>" \
+  dist/speak-X.Y.Z-aarch64-apple-darwin.tar.gz \
+  dist/speak-X.Y.Z-aarch64-apple-darwin.tar.gz.sha256
+```
+A pushed tag with no release is a defect — if you tag, you release in the same turn.
+
 > `speckit verify` exits 0; it reports Gherkin scenarios as `unbound` **by design** — its
 > harness can only re-invoke `speckit`, never `speak` (so any `I run "speak …"` step is
 > unbound: `0 passed / 0 failed / 31 unbound` + 8 from the second feature). Executable
@@ -420,6 +434,8 @@ disappears, restore with **`bash /root/omnivoice/ensure_sse.sh`** (idempotent, o
 - Methods < 30 lines; no dead code; no duplication; `make clippy` clean (no deny-level hits).
 - Angular Conventional commits; **small contextual commits**; docs + code committed together.
   Don't push unless asked.
+- **Every git tag MUST have a matching GitHub release** with the built artifacts attached —
+  a tag without a release is forbidden. Follow the Tag ⟹ Release flow in §3.
 - en-US for all code/docs/commits.
 - Never modify `rust-toolchain.toml`, `Cargo.toml [lints.*]`, or PMD/ruleset files without
   explicit permission — fix the code to comply instead.
