@@ -75,23 +75,46 @@ pub(crate) async fn run_stream(
         buffer = cfg.audio.capture.buffer_secs,
         "stream transcribe starting; Ctrl-C to stop"
     );
+    // One persistent Ctrl-C future (a fresh one per iteration would miss a signal
+    // delivered mid-POST); the whole recv+process is inside the select! arm so
+    // Ctrl-C cancels an in-flight chunk immediately.
+    let mut shutdown = std::pin::pin!(tokio::signal::ctrl_c());
     loop {
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
+            _ = &mut shutdown => {
                 tracing::info!("stream transcribe stopping");
                 return Ok(());
             }
-            chunk = capture.recv() => {
-                let Some(raw) = chunk else {
-                    tracing::warn!("capture stream ended");
-                    return Ok(());
-                };
-                if let Err(e) = process_chunk(facade, cfg, &args, sse, &opts, raw, presenter).await {
-                    tracing::warn!("stream transcribe chunk failed: {e:#}");
+            outcome = drive_one(facade, cfg, &args, sse, &opts, &mut capture, presenter) => {
+                match outcome {
+                    Ok(true) => {
+                        tracing::warn!("capture stream ended");
+                        return Ok(());
+                    }
+                    Ok(false) => {}
+                    Err(e) => tracing::warn!("stream transcribe chunk failed: {e:#}"),
                 }
             }
         }
     }
+}
+
+/// Receive + process one chunk; `Ok(true)` when the capture stream has ended.
+/// Run inside the loop's `select!` so Ctrl-C cancels it cleanly.
+async fn drive_one(
+    facade: &AppFacade,
+    cfg: &Config,
+    args: &TranscribeArgs,
+    sse: &SseRealtimeClient,
+    opts: &StreamTranscribeOptions,
+    capture: &mut speak::adapters::coreaudio::NativeCaptureStream,
+    presenter: &mut dyn Presenter,
+) -> Result<bool> {
+    let Some(raw) = capture.recv().await else {
+        return Ok(true);
+    };
+    process_chunk(facade, cfg, args, sse, opts, raw, presenter).await?;
+    Ok(false)
 }
 
 /// Encode one captured chunk, stream it transcript-only, surface each transcript.

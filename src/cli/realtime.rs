@@ -79,25 +79,38 @@ async fn run_chunked(
     opts: &RealtimeOptions,
     presenter: &mut dyn Presenter,
 ) -> Result<()> {
+    // One persistent Ctrl-C future; the recv+process is inside the select! arm so
+    // Ctrl-C cancels an in-flight chunk immediately (ADR-0017).
+    let mut shutdown = std::pin::pin!(tokio::signal::ctrl_c());
     loop {
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
+            _ = &mut shutdown => {
                 tracing::info!("realtime loop stopping");
                 return Ok(());
             }
-            chunk = capture.recv() => {
-                let Some(raw) = chunk else {
-                    tracing::warn!("capture stream ended");
-                    return Ok(());
-                };
-                match facade.realtime_process(raw, opts).await {
-                    Ok(Some(step)) => emit_step(&step, presenter)?,
-                    Ok(None) => {}
-                    Err(e) => tracing::warn!("realtime chunk failed: {e:#}"),
-                }
-            }
+            outcome = chunked_one(facade, capture, opts, presenter) => match outcome {
+                Ok(true) => { tracing::warn!("capture stream ended"); return Ok(()); }
+                Ok(false) => {}
+                Err(e) => tracing::warn!("realtime chunk failed: {e:#}"),
+            },
         }
     }
+}
+
+/// Receive + locally re-voice one chunk; `Ok(true)` when the stream has ended.
+async fn chunked_one(
+    facade: &AppFacade,
+    capture: &mut NativeCaptureStream,
+    opts: &RealtimeOptions,
+    presenter: &mut dyn Presenter,
+) -> Result<bool> {
+    let Some(raw) = capture.recv().await else {
+        return Ok(true);
+    };
+    if let Some(step) = facade.realtime_process(raw, opts).await? {
+        emit_step(&step, presenter)?;
+    }
+    Ok(false)
 }
 
 /// The SSE path: POST each captured chunk and play back the streamed frames.
@@ -109,23 +122,36 @@ async fn run_sse(
     opts: &RealtimeOptions,
     presenter: &mut dyn Presenter,
 ) -> Result<()> {
+    let mut shutdown = std::pin::pin!(tokio::signal::ctrl_c());
     loop {
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
+            _ = &mut shutdown => {
                 tracing::info!("realtime loop stopping");
                 return Ok(());
             }
-            chunk = capture.recv() => {
-                let Some(raw) = chunk else {
-                    tracing::warn!("capture stream ended");
-                    return Ok(());
-                };
-                if let Err(e) = drive_chunk(facade, cfg, sse, opts, raw, presenter).await {
-                    tracing::warn!("realtime SSE chunk failed: {e:#}");
-                }
-            }
+            outcome = sse_one(facade, cfg, sse, capture, opts, presenter) => match outcome {
+                Ok(true) => { tracing::warn!("capture stream ended"); return Ok(()); }
+                Ok(false) => {}
+                Err(e) => tracing::warn!("realtime SSE chunk failed: {e:#}"),
+            },
         }
     }
+}
+
+/// Receive + SSE-stream one chunk; `Ok(true)` when the stream has ended.
+async fn sse_one(
+    facade: &AppFacade,
+    cfg: &Config,
+    sse: &SseRealtimeClient,
+    capture: &mut NativeCaptureStream,
+    opts: &RealtimeOptions,
+    presenter: &mut dyn Presenter,
+) -> Result<bool> {
+    let Some(raw) = capture.recv().await else {
+        return Ok(true);
+    };
+    drive_chunk(facade, cfg, sse, opts, raw, presenter).await?;
+    Ok(false)
 }
 
 /// Encode one captured chunk, stream it through the SSE endpoint, play the frames.
