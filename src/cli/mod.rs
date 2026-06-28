@@ -15,7 +15,7 @@ use anyhow::Result;
 use speak::adapters::config::Config;
 use speak::adapters::coreaudio::CoreAudio;
 use speak::adapters::libav::LibavCodec;
-use speak::application::SpeakFacade;
+use speak::application::{SpeakFacade, StreamTranscribeOptions};
 use speak::domain::capture_source::{CaptureDirection, CaptureSource};
 use speak::domain::voice::{StandardVoice, VoiceClone, VoiceMode};
 use speak::domain::voice_design::VoiceDesign;
@@ -83,6 +83,33 @@ pub(crate) fn capture_source(
     CaptureSource::new(direction, device, channel)
 }
 
+/// Resolve the shared live-streaming options (capture source + chunk + VAD) from
+/// the common `transcribe --stream` / `translate --stream` flags + config
+/// (ADR-0014/0017). `[audio.input]` supplies the chunk/VAD defaults.
+#[must_use]
+pub(crate) fn stream_options(
+    source: Option<CaptureSourceArg>,
+    device: u32,
+    input_channel: Option<u16>,
+    chunk: u64,
+    no_vad: bool,
+    vad_floor: Option<f64>,
+    cfg: &Config,
+) -> StreamTranscribeOptions {
+    let chunk_secs = if chunk == 5 {
+        cfg.audio.input.chunk_secs
+    } else {
+        f64::from(chunk as u32)
+    };
+    let threshold_db = vad_floor.unwrap_or(cfg.audio.input.silence_threshold_db);
+    StreamTranscribeOptions {
+        source: capture_source(source, device, input_channel, cfg),
+        chunk_secs,
+        vad: cfg.audio.input.vad && !no_vad,
+        silence_floor: 10f64.powf(threshold_db / 20.0),
+    }
+}
+
 /// Whether `command` will capture the host **output** — the source resolves to
 /// `output` via the `--source` flag or `[audio.capture].source`. The composition
 /// root uses this to decide the macOS TCC-disclaim re-exec (ADR-0016).
@@ -90,6 +117,7 @@ pub(crate) fn capture_source(
 pub(crate) fn wants_output_capture(command: &Command, cfg: &Config) -> bool {
     let source = match command {
         Command::Transcribe(a) if a.stream => a.source,
+        Command::Translate(a) if a.stream => a.source,
         Command::Record(a) => a.source,
         Command::Realtime(a) => a.source,
         _ => return false,

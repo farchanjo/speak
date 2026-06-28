@@ -51,7 +51,7 @@ async fn main() -> Result<()> {
 fn pre_dispatch_disclaim(cli: &Cli) -> Result<()> {
     if !matches!(
         cli.command,
-        Command::Transcribe(_) | Command::Record(_) | Command::Realtime(_)
+        Command::Transcribe(_) | Command::Translate(_) | Command::Record(_) | Command::Realtime(_)
     ) {
         return Ok(());
     }
@@ -172,7 +172,13 @@ async fn dispatch(cli: Cli, cfg: &Config) -> Result<()> {
             }
         }
         Command::Translate(args) => {
-            cli::translate::run(&factory.facade(false).await?, cfg, args, out).await
+            let facade = factory.facade(false).await?;
+            if args.stream {
+                let sse = SseRealtimeClient::new(cfg)?;
+                cli::translate::run_stream(&facade, cfg, args, &sse, out).await
+            } else {
+                cli::translate::run(&facade, cfg, args, out).await
+            }
         }
         Command::Realtime(args) => {
             let sse = SseRealtimeClient::new(cfg)?;

@@ -251,17 +251,47 @@ pub(crate) struct TranscribeArgs {
 }
 
 /// `translate` arguments.
+///
+/// File mode (default) translates `FILE` once. `--stream` instead captures live
+/// audio from the selected source and prints the translation incrementally until
+/// Ctrl-C (ADR-0014/0017), mirroring `transcribe --stream`; `FILE` is then omitted.
 #[derive(Args, Debug)]
 pub(crate) struct TranslateArgs {
-    /// Audio file to translate.
+    /// Audio file to translate (omit in `--stream` mode).
     #[arg(value_name = "FILE")]
-    pub file: PathBuf,
+    pub file: Option<PathBuf>,
     /// Target language (`en` uses Whisper translate; others use chat-MT, T039).
     #[arg(short = 't', long, default_value = "en", value_name = "LANG")]
     pub to: String,
-    /// Output format.
+    /// Output format (file mode).
     #[arg(short = 'f', long, value_enum, default_value_t = TextFormat::Text)]
     pub format: TextFormat,
+    /// Stream a live translation from the capture source until Ctrl-C.
+    #[arg(short = 'S', long)]
+    pub stream: bool,
+    /// Capture source for `--stream`, overriding `[audio.capture].source`.
+    #[arg(short = 's', long, value_enum)]
+    pub source: Option<CaptureSourceArg>,
+    /// Capture device `AudioDeviceID` (0 = default for the source direction).
+    #[arg(short = 'd', long, default_value_t = 0, value_name = "ID")]
+    pub device: u32,
+    /// Capture only this 0-based channel within the source (ADR-0013).
+    #[arg(short = 'I', long = "input-channel", value_name = "N")]
+    pub input_channel: Option<u16>,
+    /// Chunk length in seconds for `--stream`.
+    #[arg(short = 'c', long, default_value_t = 5, value_name = "SECS")]
+    pub chunk: u64,
+    /// Disable the silence/VAD gate for `--stream` (send every chunk).
+    #[arg(short = 'x', long = "no-vad")]
+    pub no_vad: bool,
+    /// Silence-gate threshold in dBFS for `--stream` (overrides config).
+    #[arg(
+        short = 'F',
+        long = "vad-floor",
+        value_name = "DBFS",
+        allow_negative_numbers = true
+    )]
+    pub vad_floor: Option<f64>,
 }
 
 /// `realtime` arguments.

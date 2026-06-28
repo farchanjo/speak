@@ -11,7 +11,7 @@ use anyhow::{Context, Result, bail};
 use speak::adapters::config::Config;
 use speak::adapters::coreaudio::CoreAudio;
 use speak::adapters::sse::{RealtimeRequest, SseRealtimeClient};
-use speak::application::{StreamTranscribeOptions, TranscribeStreamEnd};
+use speak::application::{FrameKind, StreamTranscribeOptions, TranscribeStreamEnd};
 use speak::domain::language::Language;
 use speak::domain::pcm::PcmBuffer;
 use speak::ports::presenter::Presenter;
@@ -63,7 +63,15 @@ pub(crate) async fn run_stream(
     sse: &SseRealtimeClient,
     presenter: &mut dyn Presenter,
 ) -> Result<()> {
-    let opts = build_options(cfg, &args);
+    let opts = super::stream_options(
+        args.source,
+        args.device,
+        args.input_channel,
+        args.chunk,
+        args.no_vad,
+        args.vad_floor,
+        cfg,
+    );
     let mut capture = CoreAudio::new().capture_stream(
         &opts.source,
         opts.chunk_secs,
@@ -134,8 +142,10 @@ async fn process_chunk(
     let mut stream = sse.stream(request, cfg.retry.policy, cfg.retry.jitter_seed);
     let mut emit_err = None;
     let end = facade
-        .stream_transcribe_drive(&mut stream, |text| {
-            if let Err(e) = presenter.line(text) {
+        .stream_transcribe_drive(&mut stream, |kind, text| {
+            if kind == FrameKind::Transcript
+                && let Err(e) = presenter.line(text)
+            {
                 emit_err.get_or_insert(e);
             }
         })
@@ -168,25 +178,5 @@ fn stream_request(wav: Vec<u8>, cfg: &Config, args: &TranscribeArgs) -> Realtime
         instruct,
         language: args.language.clone().or_else(|| cfg.asr.language.clone()),
         format: cfg.tts.format.clone(),
-    }
-}
-
-/// Assemble the streaming options from the flags + `[audio.input]` defaults.
-fn build_options(cfg: &Config, args: &TranscribeArgs) -> StreamTranscribeOptions {
-    let source = super::capture_source(args.source, args.device, args.input_channel, cfg);
-    let chunk_secs = if args.chunk == 5 {
-        cfg.audio.input.chunk_secs
-    } else {
-        f64::from(args.chunk as u32)
-    };
-    let vad = cfg.audio.input.vad && !args.no_vad;
-    let threshold_db = args
-        .vad_floor
-        .unwrap_or(cfg.audio.input.silence_threshold_db);
-    StreamTranscribeOptions {
-        source,
-        chunk_secs,
-        vad,
-        silence_floor: 10f64.powf(threshold_db / 20.0),
     }
 }
