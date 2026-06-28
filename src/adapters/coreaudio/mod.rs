@@ -29,6 +29,21 @@ use crate::ports::audio::{AudioDevice, AudioDeviceId, AudioSink, AudioSource};
 
 pub use backend::{capture, capture_output, enumerate, play, play_to, reexec_disclaimed};
 
+/// Tuning for a continuous capture stream (ADR-0017 / ADR-0019). When `vad` is
+/// set, the producer cuts on the silence between utterances; otherwise it slices
+/// a fixed `chunk_secs` grid (the `--no-vad` path — no audio is ever dropped).
+#[derive(Debug, Clone, Copy)]
+pub struct SegmentParams {
+    /// Cut on silence (VAD segmentation) instead of a fixed time grid.
+    pub vad: bool,
+    /// Linear RMS amplitude at/above which a hop counts as speech.
+    pub floor: f64,
+    /// Fixed slice length (seconds) used only when `vad` is off.
+    pub chunk_secs: f64,
+    /// Ring backlog ceiling (seconds) before the oldest audio is dropped.
+    pub cap_secs: f64,
+}
+
 /// Native `CoreAudio` [`AudioSink`] + [`AudioSource`] Adapter (Factory: `new`).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CoreAudio;
@@ -41,17 +56,17 @@ impl CoreAudio {
     }
 
     /// Start a continuous capture stream for `source` (ADR-0017): one long-lived
-    /// native capture feeds `chunk_secs` chunks over a channel, bounded by
-    /// `cap_secs`, decoupling capture from the SSE consumer so a slow round trip
-    /// never drops audio.
+    /// native capture feeds VAD-segmented utterances (or fixed `chunk_secs` slices
+    /// when `params.vad` is off, ADR-0019) over a channel bounded by
+    /// `params.cap_secs`, decoupling capture from the SSE consumer so a slow round
+    /// trip never drops audio.
     pub fn capture_stream(
         &self,
         source: &CaptureSource,
-        chunk_secs: f64,
-        cap_secs: f64,
+        params: SegmentParams,
     ) -> Result<NativeCaptureStream> {
         Ok(NativeCaptureStream {
-            rx: backend::start_capture_stream(source, chunk_secs, cap_secs)?,
+            rx: backend::start_capture_stream(source, params)?,
         })
     }
 }

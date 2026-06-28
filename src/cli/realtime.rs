@@ -14,7 +14,7 @@
 use anyhow::Result;
 
 use speak::adapters::config::Config;
-use speak::adapters::coreaudio::{CoreAudio, NativeCaptureStream};
+use speak::adapters::coreaudio::{CoreAudio, NativeCaptureStream, SegmentParams};
 use speak::adapters::sse::{RealtimeRequest, SseRealtimeClient};
 use speak::application::{RealtimeEvent, RealtimeOptions, RealtimeStep};
 use speak::domain::audio_format::AudioFormat;
@@ -52,8 +52,12 @@ pub(crate) async fn run(
     // consumer, so a slow round trip never pauses capture (no dropped words).
     let mut capture = CoreAudio::new().capture_stream(
         &opts.source,
-        opts.chunk_secs,
-        cfg.audio.capture.buffer_secs,
+        SegmentParams {
+            vad: opts.vad,
+            floor: opts.silence_floor,
+            chunk_secs: opts.chunk_secs,
+            cap_secs: cfg.audio.capture.buffer_secs,
+        },
     )?;
     tracing::info!(
         mode = opts.mode.as_str(),

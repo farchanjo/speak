@@ -60,19 +60,16 @@ where
         Self { codec }
     }
 
-    /// Encode one captured chunk to WAV, or `Ok(None)` when gated as silence.
+    /// Encode one captured segment to WAV. The continuous producer is the single
+    /// VAD authority now (ADR-0019: it cuts on silence and drops noise), so this
+    /// no longer re-gates — a second whole-segment RMS gate would wrongly drop a
+    /// soft-but-real utterance ("nem chega nada"). `Ok(None)` only on an empty pick.
     pub fn encode(
         &self,
         raw: PcmBuffer,
         opts: &StreamTranscribeOptions,
     ) -> Result<Option<Vec<u8>>> {
-        encode_chunk(
-            self.codec,
-            raw,
-            opts.source.channel(),
-            opts.vad,
-            opts.silence_floor,
-        )
+        encode_chunk(self.codec, raw, opts.source.channel(), false, 0.0)
     }
 
     /// Drive an SSE stream text-only: surface each `transcript`/`translation`
