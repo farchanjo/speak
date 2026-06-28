@@ -52,6 +52,7 @@ speckit project at `~/dev/omnivoice-server`.
 | 0016 | TCC responsibility-disclaim re-exec for host-output capture |
 | 0017 | Decoupled streaming-capture pipeline (continuous producer + bounded queue) |
 | 0018 | Pipelined in-flight SSE consumer for streaming capture |
+| 0019 | VAD-segmented streaming chunks (cut on silence, not a fixed grid) |
 
 > SDD features: `001-…-solaris-server` (accepted), `002-streaming-transcribe-and-capture-source-selection` (draft).
 > ADR-0020 is *cited* by `docs/arch/specs/acceptance-coverage.md` for the speckit Gherkin
@@ -234,7 +235,10 @@ multichannel interface (ADR-0013, e.g. SSL 12); `-c/--chunk <secs>` (default 5);
 native capture (tap IOProc / AVAudioEngine tap)
   └─ RT callback appends interleaved f32 → CaptureRing (VecDeque<f32> behind Mutex,
        drops oldest past cap_secs)
-        └─ speak-capture thread (producer): drains chunk_secs every POLL_MS=20 ms,
+        └─ speak-capture thread (producer): VAD Segmenter (ADR-0019) drains the ring
+             every POLL_MS=20 ms, cuts on the silence between utterances (HANG_SECS
+             pause / MAX_SEGMENT_SECS cap), trims + drops noise; with --no-vad it
+             falls back to fixed chunk_secs slices.
              blocking_send → bounded tokio mpsc (CHANNEL_CHUNKS=2 slots, ADR-0018)
                   └─ pipelined consumer (cli/stream_pipeline.rs, ADR-0018): up to
                        MAX_INFLIGHT=3 chunk POSTs overlap; encode+VAD per chunk, then
@@ -243,10 +247,15 @@ native capture (tap IOProc / AVAudioEngine tap)
                        Ctrl-C. Throughput = MAX_INFLIGHT / round_trip (vs 1/round_trip)
 ```
 
-- API: `CoreAudio::capture_stream(source, chunk_secs, cap_secs) -> NativeCaptureStream`
-  (`coreaudio/mod.rs`); `NativeCaptureStream::recv() -> Option<PcmBuffer>` wraps the mpsc
-  receiver. Tokio stays inside the adapter. Dropping the receiver closes the channel →
-  producer exits → native capture RAII teardown.
+- API: `CoreAudio::capture_stream(source, SegmentParams{vad,floor,chunk_secs,cap_secs}) ->
+  NativeCaptureStream` (`coreaudio/mod.rs`); `NativeCaptureStream::recv() -> Option<PcmBuffer>`
+  wraps the mpsc receiver. Tokio stays inside the adapter. Dropping the receiver closes the
+  channel → producer exits → native capture RAII teardown.
+- Segmentation (ADR-0019): with `vad` on, the producer's `Segmenter` cuts on the silence
+  between utterances (RMS `floor` from `silence_threshold_db`/`--vad-floor`; `HANG_SECS` pause,
+  `MAX_SEGMENT_SECS` cap, `MIN_SPEECH_SECS` noise floor, `PRE`/`POST_ROLL_SECS` trim) so words
+  are never split and soft lines never dropped. The producer is the SINGLE VAD authority —
+  `StreamTranscribeUseCase::encode` no longer re-gates. `--no-vad` → fixed `chunk_secs` slices.
 - Backpressure: bounded mpsc pushes back on the producer → ring grows → drops oldest past
   `cap_secs` (a `tracing` warning fires). Ceiling: `[audio.capture].buffer_secs` (default
   **60.0**, env `SPEAK_AUDIO_CAPTURE_BUFFER_SECS`).
@@ -254,7 +263,7 @@ native capture (tap IOProc / AVAudioEngine tap)
   prints only `transcript` frames; `audio`/`translation` frames ignored (no re-voicing/playback).
 - `translate --stream` (ADR-0017 extension): same pipeline, POST with `translate=true` +
   `to`; prints only `translation` frames. Both drive the shared pipelined consumer
-  `cli::stream_pipeline::run` (ADR-0018): a `build` closure encodes each chunk (VAD-gated)
+  `cli::stream_pipeline::run` (ADR-0018): a `build` closure encodes each VAD-segmented chunk
   and returns the `collect_chunk` future, which POSTs the SSE stream via the shared
   `StreamTranscribeUseCase` (`facade.stream_transcribe_drive`) and collects the wanted
   `FrameKind` (Transcript vs Translation). `cli::stream_options(...)` builds the options.

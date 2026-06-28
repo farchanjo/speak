@@ -15,7 +15,7 @@
 use anyhow::{Context, Result, bail};
 
 use speak::adapters::config::Config;
-use speak::adapters::coreaudio::CoreAudio;
+use speak::adapters::coreaudio::{CoreAudio, SegmentParams};
 use speak::adapters::sse::{RealtimeRequest, SseRealtimeClient};
 use speak::application::FrameKind;
 use speak::domain::language::Language;
@@ -72,8 +72,12 @@ pub(crate) async fn run_stream(
     );
     let mut capture = CoreAudio::new().capture_stream(
         &opts.source,
-        opts.chunk_secs,
-        cfg.audio.capture.buffer_secs,
+        SegmentParams {
+            vad: opts.vad,
+            floor: opts.silence_floor,
+            chunk_secs: opts.chunk_secs,
+            cap_secs: cfg.audio.capture.buffer_secs,
+        },
     )?;
     tracing::info!(
         source = opts.source.direction().as_str(),

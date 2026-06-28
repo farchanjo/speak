@@ -51,8 +51,7 @@ pub fn reexec_disclaimed() -> Result<()> {
 /// Continuous streaming capture is macOS-only (ADR-0017).
 pub(crate) fn start_capture_stream(
     _source: &CaptureSource,
-    _chunk_secs: f64,
-    _cap_secs: f64,
+    _params: super::SegmentParams,
 ) -> Result<tokio::sync::mpsc::Receiver<PcmBuffer>> {
     bail!("continuous capture is only implemented on macOS (CoreAudio)")
 }
